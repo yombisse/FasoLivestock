@@ -7,7 +7,7 @@ const Splash = ({navigation}: {navigation: any}) => {
   return (
     <SafeAreaView style={styles.container}>
       <Image source={require('../../assets/images/LogoFLS.png')} style={styles.image} />
-      <AppButton onPress={() => navigation.navigate('Login')} title="Commencer" />
+      <AppButton onPress={() => navigation.navigate('Login')} style={styles.button} title="Commencer" />
     </SafeAreaView>
   );
 };
@@ -25,5 +25,10 @@ const styles = StyleSheet.create({
         width:200,
         height:200,
         borderRadius:100
+    },
+    button:{
+        width:'90%',
+        height:50,
+        borderRadius:25
     }
 });

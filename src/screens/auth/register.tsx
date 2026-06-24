@@ -7,16 +7,87 @@ import AppTextInput from '../../components/AppTextInput';
 import AppLink from '../../components/AppLink';
 import AppText from '../../components/AppText';
 import AppImage from '../../components/AppImage';
+import authService from '../../services/auth.service';
+import { authStorage } from '../../storage/authStorage';
 
 const Register = ({navigation}: any) => {
-  const [fullName, setFullName] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<{name?: string; email?: string; password?: string; passwordConfirmation?: string; general?: string}>({});
+
+  const handleRegister = async () => {
+    // Validation de base
+    const newErrors: {name?: string; email?: string; password?: string; passwordConfirmation?: string} = {};
+    
+    if (!name) {
+      newErrors.name = 'Le nom complet est requis';
+    } else if (name.length < 2) {
+      newErrors.name = 'Le nom doit contenir au moins 2 caractères';
+    }
+    
+    if (!email) {
+      newErrors.email = 'L\'email est requis';
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      newErrors.email = 'Email invalide';
+    }
+    
+    if (!password) {
+      newErrors.password = 'Le mot de passe est requis';
+    } else if (password.length < 6) {
+      newErrors.password = 'Le mot de passe doit contenir au moins 6 caractères';
+    }
+    
+    if (!passwordConfirmation) {
+      newErrors.passwordConfirmation = 'La confirmation du mot de passe est requise';
+    } else if (password !== passwordConfirmation) {
+      newErrors.passwordConfirmation = 'Les mots de passe ne correspondent pas';
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
+    setLoading(true);
+    
+    try {
+      const response = await authService.register({ 
+        name, 
+        email, 
+        password, 
+        password_confirmation: passwordConfirmation 
+      });
+      
+      if (response.success) {
+        // Si le token est renvoyé, le stocker
+        if (response.data?.token) {
+          await authStorage.setToken(response.data.token);
+          if (response.data.user) {
+            await authStorage.setUser(response.data.user);
+          }
+        }
+        
+        console.log('Register successful:', response.data);
+        // Naviguer vers l'écran de vérification 2FA avec verification_id
+        navigation.navigate('VerifyEmail', { 
+          email, 
+          verification_id: response.data?.verification_id 
+        });
+      }
+    } catch (error: any) {
+      setErrors({ general: error.message || 'Erreur lors de l\'inscription' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-        <AppHeader title="Inscription" />
+        <AppHeader title="Inscription" subtitle="Créez votre compte et découvrez nos services" />
         <View style={styles.content}>
           <View style={styles.scrollContent}>
             <View style={styles.logoContainer}>
@@ -26,15 +97,15 @@ const Register = ({navigation}: any) => {
                 height={150} 
               />
             </View>
-            <AppText style={styles.title}>Inscription</AppText>
           </View>
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scrollView} contentContainerStyle={{paddingVertical: 24}} showsVerticalScrollIndicator={false}>
             <View style={styles.form}>
               <AppTextInput
                 label="Nom complet"
                 placeholder="Entrez votre nom complet"
-                value={fullName}
-                onChangeText={setFullName}
+                value={name}
+                onChangeText={setName}
+                error={errors.name}
               />
               <AppTextInput
                 label="Email"
@@ -43,6 +114,7 @@ const Register = ({navigation}: any) => {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                error={errors.email}
               />
               <AppTextInput
                 label="Mot de passe"
@@ -50,15 +122,22 @@ const Register = ({navigation}: any) => {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={true}
+                error={errors.password}
               />
               <AppTextInput
                 label="Confirmer mot de passe"
                 placeholder="Confirmez votre mot de passe"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                value={passwordConfirmation}
+                onChangeText={setPasswordConfirmation}
                 secureTextEntry={true}
+                error={errors.passwordConfirmation}
               />
-              <AppButton onPress={() => {}} title="S'inscrire" />
+              {errors.general && <AppText style={styles.errorText}>{errors.general}</AppText>}
+              <AppButton 
+                onPress={handleRegister} 
+                title={loading ? 'Inscription...' : 'S\'inscrire'}
+                disabled={loading}
+              />
               <View style={styles.loginContainer}>
                 <AppText style={styles.loginText}>Déjà un compte? </AppText>
                 <AppLink text="Se connecter" onPress={() => {navigation.navigate('Login')}} />
@@ -91,6 +170,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     paddingHorizontal: 24,
+    
   },
   title: {
     fontSize: 28,
@@ -111,6 +191,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   logoContainer: {
-    marginBottom: 20,
+    marginBottom: 10,
+  },
+  errorText: {
+    color: '#ff4757',
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });

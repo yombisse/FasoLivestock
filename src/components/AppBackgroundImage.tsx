@@ -1,9 +1,15 @@
 import React from 'react';
-import { ImageBackground, StyleSheet } from 'react-native';
+import { ImageBackground, StyleSheet, ImageStyle } from 'react-native';
 
-const AppBackgroundImage = ({source, children}: {source: any; children: React.ReactNode}) => {
+interface AppBackgroundImageProps {
+  source: any;
+  children: React.ReactNode;
+  style?: ImageStyle;
+}
+
+const AppBackgroundImage = ({source, children, style}: AppBackgroundImageProps) => {
   return (
-    <ImageBackground source={source} style={styles.image}>
+    <ImageBackground source={source} style={[styles.image, style]}>
       {children}
     </ImageBackground>
   );

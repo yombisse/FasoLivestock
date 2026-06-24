@@ -12,6 +12,11 @@ interface AppTextInputProps {
   error?:	string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  maxLength?: number;
+  style?: any;
+  labelStyle?: any;
+  inputStyle?: any;
+  errorStyle?: any;
 }
 
 const AppTextInput = ({
@@ -25,26 +30,32 @@ const AppTextInput = ({
   error,
   leftIcon,
   rightIcon,
+  maxLength,
+  style,
+  labelStyle,
+  inputStyle,
+  errorStyle,
 }: AppTextInputProps) => {
   return (
-    <View style={styles.container}>
-      {label && <Text style={styles.label}>{label}</Text>}
+    <View style={[styles.container, style]}>
+      {label && <Text style={[styles.label, labelStyle]}>{label}</Text>}
       <View style={[styles.inputContainer, error && styles.inputError]}>
         {leftIcon && <View style={styles.iconContainer}>{leftIcon}</View>}
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputStyle]}
           placeholder={placeholder}
           value={value}
           onChangeText={onChangeText}
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          maxLength={maxLength}
           placeholderTextColor="#999"
         />
         {rightIcon && <View style={styles.iconContainer}>{rightIcon}</View>}
       </View>
       <View style={styles.errorContainer}>
-        {error && <Text style={styles.errorText}>{error}</Text>}
+        {error && <Text style={[styles.errorText, errorStyle]}>{error}</Text>}
       </View>
     </View>
   );
