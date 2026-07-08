@@ -3,7 +3,7 @@
 export interface Animal {
   id: string;
   farm_id: string;
-  nom: string;
+  nom?: string;
   race?: string;
   sexe: 'male' | 'femelle';
   date_naissance?: string;
@@ -15,7 +15,11 @@ export interface Animal {
   numero_identification?: string;
   photo?: string;
   naissance_id?: string;
+  origine?: 'enregistrement' | 'achat' | 'naissance';
+  etat_sante?: 'SAIN' | 'MALADE' | 'QUARANTAINE';
+  farm_source_id?: string;
   sync_status: 'synced' | 'pending' | 'conflict';
+  last_modified_by?: string;
   version: number;
   deleted_at?: string | null;
   created_at: string;
@@ -53,6 +57,9 @@ export interface CreateAnimalRequest {
   numero_identification?: string;
   photo?: string;
   naissance_id?: string;
+  origine?: 'enregistrement' | 'achat' | 'naissance';
+  etat_sante?: 'SAIN' | 'MALADE' | 'QUARANTAINE';
+  farm_source_id?: string;
 }
 
 export interface UpdateAnimalRequest {
@@ -68,6 +75,9 @@ export interface UpdateAnimalRequest {
   numero_identification?: string;
   photo?: string;
   naissance_id?: string;
+  origine?: 'enregistrement' | 'achat' | 'naissance';
+  etat_sante?: 'SAIN' | 'MALADE' | 'QUARANTAINE';
+  farm_source_id?: string;
 }
 
 export interface AnimalMeta {

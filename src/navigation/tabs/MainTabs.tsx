@@ -1,61 +1,87 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import Dashboard from '../../screens/main/Dashboard';
-import Farms from '../../screens/main/Farms';
+import HomeScreen from '../../screens/main/HomeScreen';
 import CheptelStack from '../stack/CheptelStack';
-import Profile from '../../screens/main/Profile';
+import ReproductionStack from '../stack/ReproductionStack';
+import AlimentationScreen from '../../screens/main/AlimentationScreen';
+import SanteStack from '../stack/SanteStack';
+import TransactionStack from '../stack/TransactionStack';
 
 const Tab = createBottomTabNavigator();
 
 const MainTabs = () => {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: {
+          ...styles.tabBar,
+          paddingBottom: insets.bottom + 5,
+          height: 65 + insets.bottom,
+        },
         tabBarActiveTintColor: '#2E7D32',
-        tabBarInactiveTintColor: '#999',
+        tabBarInactiveTintColor: '#9E9E9E',
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: 4,
+        },
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tab.Screen 
-        name="Dashboard" 
-        component={Dashboard}
+        name="Home" 
+        component={HomeScreen}
         options={{
           tabBarLabel: 'Accueil',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="home" size={size} color={color} />
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="home" size={32} color={color} />
           ),
         }}
       />
       <Tab.Screen 
-        name="Farms" 
-        component={Farms}
-        options={{
-          tabBarLabel: 'Élevages',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="barn" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tab.Screen 
-        name="Animals" 
+        name="Cheptel" 
         component={CheptelStack}
         options={{
-          tabBarLabel: 'Animaux',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="cow" size={size} color={color} />
+          tabBarLabel: 'Cheptel',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="cow" size={32} color={color} />
+          ),
+        }}
+      />
+       <Tab.Screen 
+        name="Reproduction" 
+        component={ReproductionStack}
+        options={{
+          tabBarLabel: 'Reproduction',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="gender-male-female" size={32} color={color} />
+          ),
+        }}
+      />
+     
+      <Tab.Screen 
+        name="Sante" 
+        component={SanteStack}
+        options={{
+          tabBarLabel: 'Santé',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="medical-bag" size={32} color={color} />
           ),
         }}
       />
       <Tab.Screen 
-        name="Profile" 
-        component={Profile}
+        name="Finance" 
+        component={TransactionStack}
         options={{
-          tabBarLabel: 'Profil',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account" size={size} color={color} />
+          tabBarLabel: 'Finance',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="cash" size={32} color={color} />
           ),
         }}
       />
@@ -66,11 +92,19 @@ const MainTabs = () => {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    height: 60,
-    paddingBottom: 8,
-    paddingTop: 8,
+    borderTopWidth: 0,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    height: 65,
+    paddingBottom: 5,
+    paddingTop: 10,
+    paddingHorizontal: 10,
   },
 });
 

@@ -18,6 +18,7 @@ interface AppHeaderProps {
   style?: any;
   titleStyle?: any;
   subtitleStyle?: any;
+  source?: any;
 }
 
 const AppHeader = ({
@@ -34,12 +35,18 @@ const AppHeader = ({
   style,
   titleStyle,
   subtitleStyle,
+  source
 }: AppHeaderProps) => {
   return (
     <View style={[styles.container, { height }, style]}>
       {showBackground ? (
-        <AppBackgroundImage source={require('../assets/images/header.png')}>
+        <AppBackgroundImage source={source || require('../assets/images/header.png')}>
           <View style={styles.overlay} />
+          {showBackButton && (
+            <TouchableOpacity style={styles.backButton} onPress={onBackPress}>
+              <MaterialCommunityIcons name="arrow-left" size={28} color="#fff" />
+            </TouchableOpacity>
+          )}
           {showMenuButton && (
             <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
               <MaterialCommunityIcons name="menu" size={28} color="#fff" />
@@ -47,7 +54,7 @@ const AppHeader = ({
           )}
           {showLogoutButton && (
             <TouchableOpacity style={styles.logoutButton} onPress={onLogoutPress}>
-              <MaterialCommunityIcons name="logout" size={24} color="#fff" />
+              <MaterialCommunityIcons name="logout" size={24} color="#D32F2F" />
             </TouchableOpacity>
           )}
           <View style={styles.textContainer}>
@@ -57,6 +64,11 @@ const AppHeader = ({
         </AppBackgroundImage>
       ) : (
         <View style={[styles.textContainer, styles.solidBackground]}>
+          {showBackButton && (
+            <TouchableOpacity style={styles.backButton} onPress={onBackPress}>
+              <MaterialCommunityIcons name="arrow-left" size={28} color="#fff" />
+            </TouchableOpacity>
+          )}
           {showMenuButton && (
             <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
               <MaterialCommunityIcons name="menu" size={28} color="#fff" />
@@ -64,7 +76,7 @@ const AppHeader = ({
           )}
           {showLogoutButton && (
             <TouchableOpacity style={styles.logoutButton} onPress={onLogoutPress}>
-              <MaterialCommunityIcons name="logout" size={24} color="#fff" />
+              <MaterialCommunityIcons name="logout" size={24} color="#D32F2F" />
             </TouchableOpacity>
           )}
           {title && <Text style={[styles.text, titleStyle]}>{title}</Text>}
@@ -134,6 +146,12 @@ const styles=StyleSheet.create({
     backgroundColor: '#007AFF',
   },
   menuButton: {
+    position: 'absolute',
+    left: 20,
+    top: 50,
+    zIndex: 10,
+  },
+  backButton: {
     position: 'absolute',
     left: 20,
     top: 50,

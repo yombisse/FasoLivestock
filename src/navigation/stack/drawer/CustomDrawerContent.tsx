@@ -5,20 +5,29 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { CommonActions } from '@react-navigation/native';
 import AppText from '../../../components/AppText';
+import AppButton from '../../../components/AppButton';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { authStorage } from '../../../storage/authStorage';
 import { farmStorage } from '../../../storage/farmStorage';
 import { Farm } from '../../../types/farm.types';
+import { getDatabase } from '../../../database/connection';
+import { fullSync } from '../../../sync/syncService';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 
 const { width } = Dimensions.get('window');
 
 const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   const [user, setUser] = useState<any>(null);
   const [activeFarm, setActiveFarm] = useState<Farm | null>(null);
+  const [pendingItemsCount, setPendingItemsCount] = useState<number>(0);
+  const [failedItemsCount, setFailedItemsCount] = useState<number>(0);
+  const [syncing, setSyncing] = useState<boolean>(false);
+  const isConnected = useNetworkStatus();
 
   const loadUserData = async () => {
     try {
@@ -35,6 +44,40 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
       setActiveFarm(farm);
     } catch (error) {
       console.error('Error loading active farm:', error);
+    }
+  };
+
+  const loadSyncQueueCounts = async () => {
+    try {
+      const db = await getDatabase();
+      const pendingResult = await db.execute(
+        `SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'`
+      );
+      const failedResult = await db.execute(
+        `SELECT COUNT(*) as count FROM sync_queue WHERE status = 'failed'`
+      );
+
+      const pendingCount = pendingResult?.rows?.[0]?.count || 0;
+      const failedCount = failedResult?.rows?.[0]?.count || 0;
+
+      setPendingItemsCount(pendingCount);
+      setFailedItemsCount(failedCount);
+    } catch (error) {
+      console.error('Error loading sync queue counts:', error);
+    }
+  };
+
+  const handleManualSync = async () => {
+    if (!activeFarm || syncing) return;
+
+    try {
+      setSyncing(true);
+      await fullSync(activeFarm.id);
+      await loadSyncQueueCounts();
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -69,6 +112,7 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   useEffect(() => {
     loadUserData();
     loadActiveFarm();
+    loadSyncQueueCounts();
   }, []);
 
   const getInitials = (name: string) => {
@@ -154,9 +198,58 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
 
         {/* Section secondaire */}
         <View style={styles.divider} />
+
+        {/* Sync status and manual sync button */}
+        <View style={styles.syncSection}>
+          <View style={styles.syncStatusRow}>
+            <MaterialCommunityIcons
+              name={isConnected ? 'cloud-check' : 'cloud-off-outline'}
+              size={20}
+              color={isConnected ? '#4CAF50' : '#FF9800'}
+            />
+            <AppText style={styles.syncStatusText}>
+              {isConnected ? 'En ligne' : 'Hors ligne'}
+            </AppText>
+          </View>
+
+          {(pendingItemsCount > 0 || failedItemsCount > 0) && (
+            <View style={styles.syncCountsRow}>
+              {pendingItemsCount > 0 && (
+                <View style={styles.syncCountBadge}>
+                  <AppText style={styles.syncCountText}>{pendingItemsCount} en attente</AppText>
+                </View>
+              )}
+              {failedItemsCount > 0 && (
+                <View style={[styles.syncCountBadge, styles.syncCountBadgeError]}>
+                  <AppText style={styles.syncCountText}>{failedItemsCount} échoué(s)</AppText>
+                </View>
+              )}
+            </View>
+          )}
+
+          {isConnected && (pendingItemsCount > 0 || failedItemsCount > 0) && (
+            <TouchableOpacity
+              style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
+              onPress={handleManualSync}
+              disabled={syncing}
+              activeOpacity={0.7}
+            >
+              {syncing ? (
+                <ActivityIndicator size={20} color="#FFFFFF" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="sync" size={20} color="#FFFFFF" />
+                  <AppText style={styles.syncButtonText}>Synchroniser</AppText>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.divider} />
         <View style={styles.secondarySection}>
           {renderSecondaryItem('Changer de ferme', 'swap-horizontal', handleChangeFarm)}
-          {renderSecondaryItem('Paramètres', 'cog', () => {})}
+          {renderSecondaryItem('Conflits de sync', 'alert-circle', () => navigateToScreen('SyncConflicts'))}
           {renderSecondaryItem('Aide', 'help-circle', () => {})}
         </View>
       </ScrollView>
@@ -285,6 +378,58 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 16,
     fontWeight: '500',
+  },
+  syncSection: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  syncStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  syncStatusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#757575',
+  },
+  syncCountsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  syncCountBadge: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  syncCountBadgeError: {
+    backgroundColor: '#FFEBEE',
+  },
+  syncCountText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: '500',
+  },
+  syncButton: {
+    backgroundColor: '#2E7D32',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 12,
+  },
+  syncButtonDisabled: {
+    backgroundColor: '#BDBDBD',
+  },
+  syncButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

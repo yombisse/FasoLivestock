@@ -1,9 +1,9 @@
 import React from 'react';
-import { Text, StyleSheet, TextStyle } from 'react-native';
+import { Text, StyleSheet, StyleProp, TextStyle } from 'react-native';
 
 interface AppTextProps {
   children: React.ReactNode;
-  style?: TextStyle;
+  style?: StyleProp<TextStyle>;
   fontSize?: number;
   fontWeight?: 'normal' | 'bold' | '100' | '200' | '300' | '400' | '500' | '600' | '700' | '800' | '900';
   color?: string;

@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,18 +12,19 @@ import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import AppTextInput from '../../../components/AppTextInput';
+import AppImagePicker from '../../../components/AppImagePicker';
+import AppDateTimePicker from '../../../components/AppDateTimePicker';
+import AppSelect from '../../../components/AppSelect';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import animalService from '../../../services/animal.service';
-import especeService from '../../../services/espece.service';
 import { authStorage } from '../../../storage/authStorage';
 import { Animal, CreateAnimalRequest, UpdateAnimalRequest } from '../../../types/animal.types';
-import { Espece } from '../../../types/espece.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import { createAnimal, updateAnimal, getLocalAnimalById, getLocalAnimalByNumeroIdentification } from '../../../database/repositories/animalRepository';
+import { getLocalEspeces, Espece } from '../../../database/repositories/especeRepository';
+import { getLocalLots, Lot } from '../../../database/repositories/lotRepository';
 
 type AnimalFormRouteProp = RouteProp<CheptelStackParamList, 'AnimalForm'>;
 type AnimalFormNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalForm'>;
-
-const STATUTS = ['ACTIF', 'VENDU', 'DÉCÉDÉ', 'TRANSFÉRÉ', 'ABATTU'];
 
 const AnimalFormScreen = () => {
   const navigation = useNavigation<AnimalFormNavigationProp>();
@@ -38,17 +38,20 @@ const AnimalFormScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
   const [especes, setEspeces] = useState<Espece[]>([]);
+  const [lots, setLots] = useState<Lot[]>([]);
   const [loadingEspeces, setLoadingEspeces] = useState<boolean>(false);
+  const [photoUri, setPhotoUri] = useState<string>('');
+  const [dateNaissance, setDateNaissance] = useState<Date | undefined>(undefined);
 
   const [formData, setFormData] = useState<{
     nom: string;
     numero_identification: string;
     sexe: 'male' | 'femelle' | null;
     espece_id: string;
+    lot_id: string;
     race: string;
     poids: string;
     date_naissance: string;
-    statut: string;
     photo: string;
     notes: string;
   }>({
@@ -56,10 +59,10 @@ const AnimalFormScreen = () => {
     numero_identification: '',
     sexe: null,
     espece_id: '',
+    lot_id: '',
     race: '',
     poids: '',
     date_naissance: '',
-    statut: 'ACTIF',
     photo: '',
     notes: '',
   });
@@ -79,11 +82,11 @@ const AnimalFormScreen = () => {
     }
   };
 
-  // Charger les espèces depuis l'API
+  // Charger les espèces depuis la base locale
   const loadEspeces = async () => {
     try {
       setLoadingEspeces(true);
-      const especesData = await especeService.getEspeces();
+      const especesData = await getLocalEspeces();
       setEspeces(especesData);
     } catch (error: any) {
       console.error('Error loading especes:', error);
@@ -93,25 +96,46 @@ const AnimalFormScreen = () => {
     }
   };
 
-  // Charger l'animal en mode édition
+  // Charger les lots depuis la base locale
+  const loadLots = async () => {
+    if (!farmId) return;
+    try {
+      const lotsData = await getLocalLots(farmId);
+      setLots(lotsData);
+    } catch (error: any) {
+      console.error('Error loading lots:', error);
+    }
+  };
+
+  // Charger l'animal en mode édition (lecture locale SQLite)
   const loadAnimal = async () => {
     if (!animalId) return;
 
     try {
       setLoading(true);
-      const animal = await animalService.getAnimal(animalId);
+      const animal = await getLocalAnimalById(animalId);
+
+      if (!animal) {
+        setError('Animal non trouvé localement');
+        return;
+      }
+
       setFormData({
         nom: animal.nom,
         numero_identification: animal.numero_identification || '',
         sexe: animal.sexe,
         espece_id: animal.espece_id || '',
+        lot_id: animal.lot_id || '',
         race: animal.race || '',
         poids: animal.poids ? String(animal.poids) : '',
         date_naissance: animal.date_naissance || '',
-        statut: animal.statut || 'ACTIF',
         photo: animal.photo || '',
         notes: '',
       });
+      setPhotoUri(animal.photo || '');
+      if (animal.date_naissance) {
+        setDateNaissance(new Date(animal.date_naissance));
+      }
     } catch (err: any) {
       setError(err.message || 'Erreur lors du chargement de l\'animal');
     } finally {
@@ -127,8 +151,15 @@ const AnimalFormScreen = () => {
     }
   }, [animalId]);
 
+  // Load lots when farmId is available
+  useEffect(() => {
+    if (farmId) {
+      loadLots();
+    }
+  }, [farmId]);
+
   // Validation
-  const validate = (): boolean => {
+  const validate = async (): Promise<boolean> => {
     const errors: Record<string, string> = {};
 
     if (!formData.nom.trim()) {
@@ -143,13 +174,22 @@ const AnimalFormScreen = () => {
       errors.general = 'Aucune ferme active sélectionnée';
     }
 
+    // Check for duplicate numero_identification only when creating a new animal
+    if (!isEditMode && formData.numero_identification.trim() && farmId) {
+      const existingAnimal = await getLocalAnimalByNumeroIdentification(farmId, formData.numero_identification.trim());
+      if (existingAnimal) {
+        errors.numero_identification = 'Ce numéro d\'identification existe déjà';
+      }
+    }
+
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
   // Soumission
   const handleSubmit = async () => {
-    if (!validate()) return;
+    const isValid = await validate();
+    if (!isValid) return;
     if (!farmId) return;
 
     try {
@@ -176,19 +216,16 @@ const AnimalFormScreen = () => {
         payload.poids = parseFloat(formData.poids);
       }
       if (formData.date_naissance.trim()) {
-        payload.date_naissance = formData.date_naissance.trim();
-      }
-      if (formData.statut) {
-        payload.statut = formData.statut;
+        payload.date_naissance = convertDateForAPI(formData.date_naissance.trim());
       }
       if (formData.photo.trim()) {
         payload.photo = formData.photo.trim();
       }
 
       if (isEditMode) {
-        await animalService.updateAnimal(animalId, payload);
+        await updateAnimal(animalId, payload);
       } else {
-        await animalService.createAnimal(payload);
+        await createAnimal(payload);
       }
 
       if (isEditMode) {
@@ -220,14 +257,15 @@ const AnimalFormScreen = () => {
     }
   };
 
-  // Sélection espèce
-  const handleEspeceSelect = (especeId: string) => {
-    setFormData({ ...formData, espece_id: especeId });
-  };
-
-  // Sélection statut
-  const handleStatutSelect = (statut: string) => {
-    setFormData({ ...formData, statut });
+  // Conversion de format de date DD/MM/YYYY vers YYYY-MM-DD pour l'API
+  const convertDateForAPI = (dateString: string): string => {
+    if (!dateString) return '';
+    const parts = dateString.split('/');
+    if (parts.length === 3) {
+      const [day, month, year] = parts;
+      return `${year}-${month}-${day}`;
+    }
+    return dateString;
   };
 
   if (loading) {
@@ -236,8 +274,8 @@ const AnimalFormScreen = () => {
         <AppHeader
           title={isEditMode ? 'Modifier l\'animal' : 'Ajouter un animal'}
           showBackground={true}
-          showMenuButton={true}
-          onMenuPress={() => (navigation as any).openDrawer()}
+          showBackButton={true}
+          onBackPress={() => navigation.goBack()}
         />
         <View style={styles.loadingContainer}>
           <AppText color="#757575">Chargement...</AppText>
@@ -251,8 +289,8 @@ const AnimalFormScreen = () => {
       <AppHeader
         title={isEditMode ? 'Modifier l\'animal' : 'Ajouter un animal'}
         showBackground={true}
-        showMenuButton={true}
-        onMenuPress={() => (navigation as any).openDrawer()}
+        showBackButton={true}
+        onBackPress={() => navigation.goBack()}
       />
 
       <ScrollView style={styles.content}>
@@ -294,88 +332,30 @@ const AnimalFormScreen = () => {
 
           {/* Sexe */}
           <View style={styles.field}>
-            <AppText style={styles.label} fontWeight="bold">
-              Sexe *
-            </AppText>
-            <View style={styles.toggleContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.toggleButton,
-                  formData.sexe === 'male' && styles.toggleButtonActive,
-                ]}
-                onPress={() => setFormData({ ...formData, sexe: 'male' })}
-              >
-                <MaterialCommunityIcons
-                  name="gender-male"
-                  size={20}
-                  color={formData.sexe === 'male' ? '#fff' : '#757575'}
-                />
-                <AppText
-                  style={[styles.toggleText, formData.sexe === 'male' && styles.toggleTextActive]}
-                >
-                  Mâle
-                </AppText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.toggleButton,
-                  formData.sexe === 'femelle' && styles.toggleButtonActive,
-                ]}
-                onPress={() => setFormData({ ...formData, sexe: 'femelle' })}
-              >
-                <MaterialCommunityIcons
-                  name="gender-female"
-                  size={20}
-                  color={formData.sexe === 'femelle' ? '#fff' : '#757575'}
-                />
-                <AppText
-                  style={[styles.toggleText, formData.sexe === 'femelle' && styles.toggleTextActive]}
-                >
-                  Femelle
-                </AppText>
-              </TouchableOpacity>
-            </View>
-            {fieldErrors.sexe && (
-              <AppText style={styles.fieldError} color="#D32F2F" fontSize={12}>
-                {fieldErrors.sexe}
-              </AppText>
-            )}
+            <AppSelect
+              label="Sexe *"
+              placeholder="Sélectionner le sexe"
+              value={formData.sexe ?? ''}
+              options={[
+                { label: 'Mâle', value: 'male' },
+                { label: 'Femelle', value: 'femelle' },
+              ]}
+              onValueChange={(value) => setFormData({ ...formData, sexe: value as 'male' | 'femelle' })}
+              error={fieldErrors.sexe}
+            />
           </View>
 
           {/* Espèce */}
           <View style={styles.field}>
-            <AppText style={styles.label} fontWeight="bold">
-              Espèce
-            </AppText>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipsContainer}
-              contentContainerStyle={styles.chipsContent}
-            >
-              {loadingEspeces ? (
-                <AppText color="#757575">Chargement des espèces...</AppText>
-              ) : especes.length === 0 ? (
-                <AppText color="#757575">Aucune espèce disponible</AppText>
-              ) : (
-                especes.map((espece) => (
-                  <TouchableOpacity
-                    key={espece.id}
-                    style={[
-                      styles.chip,
-                      formData.espece_id === espece.id && styles.chipActive,
-                    ]}
-                    onPress={() => handleEspeceSelect(espece.id)}
-                  >
-                    <AppText
-                      style={[styles.chipText, formData.espece_id === espece.id && styles.chipTextActive]}
-                    >
-                      {espece.nom}
-                    </AppText>
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
+            <AppSelect
+              label="Espèce"
+              placeholder={loadingEspeces ? 'Chargement...' : 'Sélectionner une espèce'}
+              value={formData.espece_id}
+              options={especes.map((espece) => ({ label: espece.nom, value: espece.id }))}
+              onValueChange={(value) => setFormData({ ...formData, espece_id: value })}
+              error={fieldErrors.espece_id}
+              disabled={loadingEspeces}
+            />
           </View>
 
           {/* Race */}
@@ -406,62 +386,48 @@ const AnimalFormScreen = () => {
           </View>
 
           {/* Date de naissance */}
+          <AppDateTimePicker
+            label="Date de naissance"
+            value={dateNaissance}
+            onChange={(date, formatted) => {
+              setDateNaissance(date);
+              setFormData({ ...formData, date_naissance: formatted });
+            }}
+            mode="date"
+            maximumDate={new Date()}
+            placeholder="JJ/MM/AAAA"
+            error={fieldErrors.date_naissance}
+          />
+
+          {/* Lot */}
           <View style={styles.field}>
-            <AppText style={styles.label} fontWeight="bold">
-              Date de naissance
-            </AppText>
-            <AppTextInput
-              placeholder="YYYY-MM-DD"
-              value={formData.date_naissance}
-              onChangeText={(text) => setFormData({ ...formData, date_naissance: text })}
-              error={fieldErrors.date_naissance}
+            <AppSelect
+              label="Lot"
+              placeholder="Sélectionner un lot"
+              value={formData.lot_id}
+              options={lots.map((lot) => ({ label: lot.nom_lot, value: lot.id }))}
+              onValueChange={(value) => setFormData({ ...formData, lot_id: value })}
+              error={fieldErrors.lot_id}
             />
           </View>
 
-          {/* Statut */}
+          {/* Photo */}
           <View style={styles.field}>
             <AppText style={styles.label} fontWeight="bold">
-              Statut
+              Photo
             </AppText>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipsContainer}
-              contentContainerStyle={styles.chipsContent}
-            >
-              {STATUTS.map((statut) => (
-                <TouchableOpacity
-                  key={statut}
-                  style={[
-                    styles.chip,
-                    formData.statut === statut && styles.chipActive,
-                  ]}
-                  onPress={() => handleStatutSelect(statut)}
-                >
-                  <AppText
-                    style={[styles.chipText, formData.statut === statut && styles.chipTextActive]}
-                  >
-                    {statut}
-                  </AppText>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* Lot ID */}
-          {/* TODO: Module Lots — ajouter un Picker lot_id via GET /lots?farm_id=... */}
-
-          {/* Photo URL */}
-          <View style={styles.field}>
-            <AppText style={styles.label} fontWeight="bold">
-              URL de la photo
-            </AppText>
-            <AppTextInput
-              placeholder="URL de la photo"
-              value={formData.photo}
-              onChangeText={(text) => setFormData({ ...formData, photo: text })}
-              error={fieldErrors.photo}
-            />
+            <View style={styles.imagePickerContainer}>
+              <AppImagePicker
+                onImageSelected={(uri, fileName, type) => {
+                  setPhotoUri(uri);
+                  setFormData({ ...formData, photo: uri });
+                }}
+                currentImageUri={photoUri}
+                shape="square"
+                size={140}
+                placeholder="Photo de l'animal"
+              />
+            </View>
           </View>
 
           {/* Notes */}
@@ -520,6 +486,10 @@ const styles = StyleSheet.create({
   },
   field: {
     marginBottom: 20,
+  },
+  imagePickerContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
   },
   label: {
     fontSize: 14,

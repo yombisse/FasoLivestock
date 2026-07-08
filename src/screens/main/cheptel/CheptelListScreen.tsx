@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   RefreshControl,
   TextInput,
+  Image,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -14,11 +16,15 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
+import AppBottomSheet, { BottomSheetOption, AppBottomSheetRef } from '../../../components/AppBottomSheet';
+import AnimalListItem from '../../../components/list/AnimalListItem';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import animalService from '../../../services/animal.service';
 import { authStorage } from '../../../storage/authStorage';
 import { Animal, AnimalFilters } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import { getLocalAnimals } from '../../../database/repositories/animalRepository';
+import { fullSync } from '../../../sync/syncService';
+import { syncEvents } from '../../../sync/syncEvents';
 
 type CheptelListNavigationProp = StackNavigationProp<CheptelStackParamList, 'CheptelList'>;
 
@@ -27,6 +33,9 @@ const CheptelListScreen = () => {
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [syncing, setSyncing] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -35,6 +44,7 @@ const CheptelListScreen = () => {
   const [page, setPage] = useState<number>(1);
   const [meta, setMeta] = useState<{ total: number; last_page: number } | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const bottomSheetRef = useRef<AppBottomSheetRef>(null);
 
   // Charger la ferme active
   const loadActiveFarm = async () => {
@@ -57,7 +67,7 @@ const CheptelListScreen = () => {
     }
   };
 
-  // Charger les animaux
+  // Charger les animaux (lecture locale SQLite)
   const loadAnimals = async (pageNum: number = 1, isRefresh: boolean = false) => {
     console.log('loadAnimals called with farmId:', farmId, 'pageNum:', pageNum, 'isRefresh:', isRefresh);
     if (!farmId) {
@@ -73,28 +83,44 @@ const CheptelListScreen = () => {
       }
       setError(null);
 
-      const filters: AnimalFilters = {
-        page: pageNum,
-        per_page: 15,
-      };
+      // Lecture locale depuis SQLite
+      const localAnimals = await getLocalAnimals(farmId);
+      console.log('Local animals loaded:', localAnimals.length);
 
-      if (searchQuery) filters.search = searchQuery;
-      if (selectedSexe) filters.sexe = selectedSexe;
-      if (selectedStatut) filters.statut = selectedStatut;
+      // Filtrage côté JavaScript (limitation actuelle: pas de filtres SQL)
+      let filteredAnimals = localAnimals;
 
-      console.log('Calling animalService.getAnimals with farmId:', farmId, 'filters:', filters);
-      const response = await animalService.getAnimals(farmId, filters);
-      console.log('Response received:', response);
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        filteredAnimals = filteredAnimals.filter(
+          (animal) =>
+            animal.nom?.toLowerCase().includes(query) ||
+            animal.numero_identification?.toLowerCase().includes(query)
+        );
+      }
+
+      if (selectedSexe) {
+        filteredAnimals = filteredAnimals.filter((animal) => animal.sexe === selectedSexe);
+      }
+
+      if (selectedStatut) {
+        filteredAnimals = filteredAnimals.filter((animal) => animal.statut === selectedStatut);
+      }
+
+      // Pagination côté JavaScript (limitation: pas de pagination SQL)
+      const perPage = 15;
+      const startIndex = (pageNum - 1) * perPage;
+      const paginatedAnimals = filteredAnimals.slice(startIndex, startIndex + perPage);
 
       if (pageNum === 1) {
-        setAnimals(response.animals);
+        setAnimals(paginatedAnimals);
       } else {
-        setAnimals([...animals, ...response.animals]);
+        setAnimals([...animals, ...paginatedAnimals]);
       }
 
       setMeta({
-        total: response.meta.total,
-        last_page: response.meta.last_page,
+        total: filteredAnimals.length,
+        last_page: Math.ceil(filteredAnimals.length / perPage),
       });
       setPage(pageNum);
     } catch (err: any) {
@@ -142,14 +168,61 @@ const CheptelListScreen = () => {
     loadAnimals(1, true);
   };
 
+  // Synchronisation manuelle
+  const handleManualSync = async () => {
+    if (!farmId) {
+      setError('Aucune ferme active sélectionnée');
+      return;
+    }
+
+    try {
+      setSyncing(true);
+      setSyncError(null);
+      setSyncSuccess(false);
+
+      await fullSync(farmId);
+
+      setSyncSuccess(true);
+      // Reload local data after successful sync
+      await loadAnimals(1, true);
+
+      // Hide success message after 3 seconds
+      setTimeout(() => setSyncSuccess(false), 3000);
+    } catch (err: any) {
+      setSyncError(err.message || 'Erreur lors de la synchronisation');
+      // Hide error message after 5 seconds
+      setTimeout(() => setSyncError(null), 5000);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Navigation vers détail
   const handleAnimalPress = (animal: Animal) => {
     navigation.navigate('AnimalDetail', { animalId: animal.id });
   };
 
+  // Options du bottom sheet
+  const bottomSheetOptions: BottomSheetOption[] = [
+    {
+      id: 'achat',
+      label: 'Acheter un animal',
+      icon: 'cart',
+      iconColor: '#30A15E',
+      onPress: () => navigation.navigate('AnimalAchat'),
+    },
+    {
+      id: 'saisie',
+      label: 'Saisie manuelle',
+      icon: 'pencil',
+      iconColor: '#30A15E',
+      onPress: () => navigation.navigate('AnimalForm', {}),
+    },
+  ];
+
   // Navigation vers formulaire création
   const handleAddAnimal = () => {
-    navigation.navigate('AnimalForm', {});
+    bottomSheetRef.current?.present();
   };
 
   // Charger au montage
@@ -173,87 +246,23 @@ const CheptelListScreen = () => {
     }, [farmId])
   );
 
-  // Couleurs avatar par espèce
-  const getAvatarColor = (especeNom?: string) => {
-    if (!especeNom) return '#BDBDBD';
-    const espece = especeNom.toLowerCase();
-    if (espece.includes('bovin')) return '#795548';
-    if (espece.includes('ovin')) return '#90A4AE';
-    if (espece.includes('caprin')) return '#FF8F00';
-    if (espece.includes('porcin')) return '#F48FB1';
-    if (espece.includes('volaille')) return '#FDD835';
-    return '#BDBDBD';
-  };
+  // Subscribe to sync events to refresh data when sync completes
+  useEffect(() => {
+    const unsubscribeFull = syncEvents.subscribe('sync:full:completed', () => {
+      console.log('[CheptelListScreen] Sync full completed event received, reloading animals');
+      if (farmId) {
+        loadAnimals(1, true);
+      }
+    });
 
-  // Badge statut
-  const getStatusBadge = (statut?: string) => {
-    if (!statut) return null;
-    const status = statut.toUpperCase();
-    let backgroundColor = '#F5F5F5';
-    let textColor = '#757575';
+    return () => {
+      unsubscribeFull();
+    };
+  }, [farmId]);
 
-    if (status === 'ACTIF') {
-      backgroundColor = '#E8F5E9';
-      textColor = '#2E7D32';
-    } else if (status === 'VENDU') {
-      backgroundColor = '#E3F2FD';
-      textColor = '#1565C0';
-    } else if (status === 'DÉCÉDÉ' || status === 'DECÉDÉ') {
-      backgroundColor = '#FFEBEE';
-      textColor = '#C62828';
-    }
-
-    return (
-      <View style={[styles.statusBadge, { backgroundColor }]}>
-        <AppText style={styles.statusText} color={textColor} fontSize={12} fontWeight="600">
-          {status}
-        </AppText>
-      </View>
-    );
-  };
-
-  // Render item animal
+  // Render item animal using reusable component
   const renderAnimal = ({ item }: { item: Animal }) => (
-    <TouchableOpacity
-      style={styles.animalCard}
-      onPress={() => handleAnimalPress(item)}
-      activeOpacity={0.7}
-    >
-      <View
-        style={[
-          styles.avatarContainer,
-          { backgroundColor: getAvatarColor(item.espece?.nom) },
-        ]}
-      >
-        {item.photo ? (
-          <AppText style={styles.avatarText}>{item.espece?.nom?.charAt(0) || '?'}</AppText>
-        ) : (
-          <AppText style={styles.avatarText}>{item.espece?.nom?.charAt(0) || '?'}</AppText>
-        )}
-      </View>
-      <View style={styles.animalInfo}>
-        <View style={styles.animalHeader}>
-          <AppText style={styles.animalName} fontWeight="bold">
-            {item.nom}
-          </AppText>
-          {getStatusBadge(item.statut)}
-        </View>
-        {item.numero_identification && (
-          <AppText style={styles.animalId} color="#757575">
-            #{item.numero_identification}
-          </AppText>
-        )}
-        <View style={styles.animalDetails}>
-          <AppText style={styles.animalDetail} color="#757575">
-            {item.espece?.nom || 'Espèce inconnue'}
-          </AppText>
-          <AppText style={styles.animalDetail} color="#757575">
-            • {item.sexe === 'male' ? 'Mâle' : 'Femelle'}
-          </AppText>
-        </View>
-      </View>
-      <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />
-    </TouchableOpacity>
+    <AnimalListItem animal={item} onPress={handleAnimalPress} />
   );
 
   // Render empty state
@@ -299,12 +308,29 @@ const CheptelListScreen = () => {
         subtitle="Gérez vos animaux"
         showBackground={true}
         showMenuButton={true}
-        style={styles.animalHeader}
         onMenuPress={() => (navigation as any).openDrawer()}
       />
 
       <View style={styles.content}>
-        {/* Barre de recherche */}
+        {/* Sync status banners */}
+        {syncSuccess && (
+          <View style={styles.syncBannerSuccess}>
+            <MaterialCommunityIcons name="check-circle" size={20} color="#2E7D32" />
+            <AppText style={styles.syncBannerText} color="#2E7D32" fontSize={14}>
+              Synchronisation réussie
+            </AppText>
+          </View>
+        )}
+        {syncError && (
+          <View style={styles.syncBannerError}>
+            <MaterialCommunityIcons name="alert-circle" size={20} color="#D32F2F" />
+            <AppText style={styles.syncBannerText} color="#D32F2F" fontSize={14}>
+              {syncError}
+            </AppText>
+          </View>
+        )}
+
+        {/* Barre de recherche et sync button */}
         <View style={styles.searchContainer}>
           <MaterialCommunityIcons name="magnify" size={20} color="#757575" style={styles.searchIcon} />
           <TextInput
@@ -319,6 +345,17 @@ const CheptelListScreen = () => {
               <MaterialCommunityIcons name="close-circle" size={20} color="#BDBDBD" />
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            style={styles.syncButton}
+            onPress={handleManualSync}
+            disabled={syncing}
+          >
+            <MaterialCommunityIcons
+              name={syncing ? 'loading' : 'sync'}
+              size={20}
+              color={syncing ? '#BDBDBD' : '#2E7D32'}
+            />
+          </TouchableOpacity>
         </View>
 
         {/* Filtres */}
@@ -336,6 +373,12 @@ const CheptelListScreen = () => {
               loadAnimals(1, false);
             }}
           >
+            <MaterialCommunityIcons
+              name="gender-male"
+              size={14}
+              color={selectedSexe === 'male' ? '#fff' : '#757575'}
+              style={styles.filterChipIcon}
+            />
             <AppText
               style={[styles.filterChipText, selectedSexe === 'male' && styles.filterChipTextActive]}
               fontSize={12}
@@ -351,6 +394,12 @@ const CheptelListScreen = () => {
               loadAnimals(1, false);
             }}
           >
+            <MaterialCommunityIcons
+              name="gender-female"
+              size={14}
+              color={selectedSexe === 'femelle' ? '#fff' : '#757575'}
+              style={styles.filterChipIcon}
+            />
             <AppText
               style={[styles.filterChipText, selectedSexe === 'femelle' && styles.filterChipTextActive]}
               fontSize={12}
@@ -366,6 +415,12 @@ const CheptelListScreen = () => {
               loadAnimals(1, false);
             }}
           >
+            <MaterialCommunityIcons
+              name="check-circle"
+              size={14}
+              color={selectedStatut === 'ACTIF' ? '#fff' : '#757575'}
+              style={styles.filterChipIcon}
+            />
             <AppText
               style={[styles.filterChipText, selectedStatut === 'ACTIF' && styles.filterChipTextActive]}
               fontSize={12}
@@ -421,6 +476,12 @@ const CheptelListScreen = () => {
             }
           />
         )}
+
+        {/* Bottom Sheet */}
+        <AppBottomSheet
+          ref={bottomSheetRef}
+          options={bottomSheetOptions}
+        />
 
         {/* FAB */}
         <TouchableOpacity style={styles.fab} onPress={handleAddAnimal}>
@@ -484,6 +545,9 @@ const styles = StyleSheet.create({
     color: '#757575',
     fontWeight: '500',
   },
+  filterChipIcon: {
+    marginRight: 6,
+  },
   filterChipTextActive: {
     color: '#fff',
   },
@@ -496,60 +560,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 80,
-  },
-  animalCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  avatarContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  avatarText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  animalInfo: {
-    flex: 1,
-  },
-  animalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-    height: 120,
-  },
-  animalName: {
-    fontSize: 16,
-    color: '#212121',
-    marginRight: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontWeight: '600',
-  },
-  animalId: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  animalDetails: {
-    flexDirection: 'row',
-  },
-  animalDetail: {
-    fontSize: 14,
-    marginRight: 8,
   },
   loadingContainer: {
     flex: 1,
@@ -598,6 +608,31 @@ const styles = StyleSheet.create({
   },
   errorButton: {
     paddingHorizontal: 32,
+  },
+  syncBannerSuccess: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  syncBannerError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  syncBannerText: {
+    marginLeft: 8,
+  },
+  syncButton: {
+    marginLeft: 12,
+    padding: 8,
   },
   fab: {
     position: 'absolute',

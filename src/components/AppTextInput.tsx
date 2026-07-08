@@ -13,6 +13,8 @@ interface AppTextInputProps {
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   maxLength?: number;
+  multiline?: boolean;
+  numberOfLines?: number;
   style?: any;
   labelStyle?: any;
   inputStyle?: any;
@@ -31,6 +33,8 @@ const AppTextInput = ({
   leftIcon,
   rightIcon,
   maxLength,
+  multiline = false,
+  numberOfLines,
   style,
   labelStyle,
   inputStyle,
@@ -50,6 +54,8 @@ const AppTextInput = ({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           maxLength={maxLength}
+          multiline={multiline}
+          numberOfLines={numberOfLines}
           placeholderTextColor="#999"
         />
         {rightIcon && <View style={styles.iconContainer}>{rightIcon}</View>}

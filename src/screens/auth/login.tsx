@@ -51,7 +51,8 @@ const Login = ({navigation}: any) => {
         }
         
         console.log('Login successful:', response.data);
-        // Naviguer vers le sélecteur de ferme
+
+        // Navigate to farm picker - sync will handle data pull
         navigation.reset({
           index: 0,
           routes: [{ name: 'FarmPicker' }],

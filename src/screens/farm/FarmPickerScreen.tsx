@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,30 +11,94 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import AppHeader from '../../components/AppHeader';
+import AppImage from '../../components/AppImage';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import farmService from '../../services/farm.service';
 import { farmStorage } from '../../storage/farmStorage';
 import { authStorage } from '../../storage/authStorage';
 import { Farm } from '../../types/farm.types';
+import { fullSync, initialSync } from '../../sync/syncService';
+import { getFarms } from '../../database/repositories/farmRepository';
+import { syncEvents } from '../../sync/syncEvents';
+import NetInfo from '@react-native-community/netinfo';
 
 const FarmPickerScreen = () => {
   const navigation = useNavigation();
   const [farms, setFarms] = useState<Farm[]>([]);
   const [activeFarmId, setActiveFarmId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [syncing, setSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [userFullName, setUserFullName] = useState<string>('');
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const loadFarmsInProgress = useRef(false);
 
   const loadFarms = async () => {
+    // Prevent concurrent loadFarms calls
+    if (loadFarmsInProgress.current) {
+      console.log('[FarmPickerScreen] loadFarms already in progress, skipping');
+      return;
+    }
+    
+    loadFarmsInProgress.current = true;
+    
     try {
       setLoading(true);
       setError(null);
-      const data = await farmService.getFarms();
-      setFarms(data);
+      
+      const user = await authStorage.getUser();
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Check connection status
+      const netInfo = await NetInfo.fetch();
+      setIsOnline(netInfo.isConnected ?? false);
+
+      // Try local storage first (offline-first)
+      const localFarms = await getFarms();
+      console.log(`[FarmPickerScreen] DEBUG: Local storage returned ${localFarms.length} farms`);
+
+      if (localFarms.length > 0) {
+        // Use local data immediately
+        setFarms(localFarms);
+        console.log(`[FarmPickerScreen] DEBUG: Using local data - setFarms called with ${localFarms.length} farms`);
+        
+        // Trigger initialSync in background if online (non-blocking)
+        if (netInfo.isConnected) {
+          console.log('[FarmPickerScreen] DEBUG: Triggering background initial sync');
+          initialSync().catch(err => {
+            console.warn('[FarmPickerScreen] Background initial sync failed:', err);
+          });
+        }
+      } else if (netInfo.isConnected) {
+        // No local data and online: trigger initial sync
+        console.log('[FarmPickerScreen] DEBUG: No local data, triggering initial sync');
+        try {
+          await initialSync();
+          
+          // After initial sync, try loading farms again
+          const syncedFarms = await getFarms();
+          setFarms(syncedFarms);
+          console.log(`[FarmPickerScreen] DEBUG: After initial sync - setFarms called with ${syncedFarms.length} farms`);
+          
+          if (syncedFarms.length === 0) {
+            setError('Aucune ferme disponible après synchronisation. Contactez votre administrateur.');
+          }
+        } catch (syncError: any) {
+          console.error('[FarmPickerScreen] Initial sync failed:', syncError);
+          setError('Échec de la synchronisation initiale. Vérifiez votre connexion et réessayez.');
+        }
+      } else {
+        // No local data and offline
+        setError('Aucune ferme stockée localement. Connexion requise pour la première synchronisation.');
+      }
     } catch (err: any) {
+      console.error('Error loading farms:', err);
       setError(err.message || 'Erreur lors du chargement des fermes');
     } finally {
       setLoading(false);
+      loadFarmsInProgress.current = false;
     }
   };
 
@@ -62,16 +126,35 @@ const FarmPickerScreen = () => {
 
   const handleFarmSelect = async (farm: Farm) => {
     try {
+      // Set active farm locally
       await farmStorage.setActiveFarm(farm);
+
+      // Navigate to main screen
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
           routes: [{ name: 'MainDrawer' }],
         })
       );
+
+      // Trigger sync in background after navigation
+      setSyncing(true);
+      setError(null);
+
+      try {
+        console.log('[FarmPicker] Starting background sync for farm:', farm.id);
+        await fullSync(farm.id, true);
+        console.log('[FarmPicker] Background sync completed successfully');
+      } catch (syncError: any) {
+        console.error('[FarmPicker] Background sync failed:', syncError);
+        setError('Synchronisation en arrière-plan échouée. Les données seront synchronisées ultérieurement.');
+      } finally {
+        setSyncing(false);
+      }
     } catch (error) {
       console.error('Error selecting farm:', error);
       setError('Erreur lors de la sélection de la ferme');
+      setSyncing(false);
     }
   };
 
@@ -103,8 +186,27 @@ const FarmPickerScreen = () => {
     loadFarms();
   }, []);
 
+  // Subscribe to sync events to refresh data when sync completes
+  // Only subscribe to full sync events (background syncs), not initial sync
+  useEffect(() => {
+    const unsubscribeFull = syncEvents.subscribe('sync:full:completed', () => {
+      console.log('[FarmPickerScreen] Sync full completed event received, reloading farms');
+      loadFarms();
+    });
+
+    return () => {
+      unsubscribeFull();
+    };
+  }, []);
+
   const renderFarmCard = (farm: Farm) => {
     const isActive = farm.id === activeFarmId;
+    const formatDate = (dateString?: string) => {
+      if (!dateString) return 'Jamais synchronisé';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+    
     return (
       <TouchableOpacity
         key={farm.id}
@@ -112,44 +214,43 @@ const FarmPickerScreen = () => {
         onPress={() => handleFarmSelect(farm)}
         activeOpacity={0.7}
       >
-        <View style={styles.farmCardHeader}>
-          <View style={styles.farmIconContainer}>
-            <MaterialCommunityIcons name="barn" size={32} color="#2E7D32" />
-          </View>
-          <View style={styles.farmInfo}>
-            <AppText style={styles.farmName} fontWeight="bold">
-              {farm.name}
-            </AppText>
-            {farm.location && (
-              <AppText style={styles.farmLocation} color="#757575">
-                {farm.location}
-              </AppText>
-            )}
-          </View>
+        {/* Farm Image or Icon */}
+        <View style={styles.farmImageContainer}>
+          {farm.photo ? (
+            <AppImage 
+              source={{ uri: farm.photo }} 
+              style={styles.farmImage}
+            />
+          ) : (
+            <View style={styles.farmIconPlaceholder}>
+              <MaterialCommunityIcons name="barn" size={48} color="#2E7D32" />
+            </View>
+          )}
           {isActive && (
-            <MaterialCommunityIcons name="check-circle" size={24} color="#2E7D32" />
+            <View style={styles.activeBadge}>
+              <MaterialCommunityIcons name="check-circle" size={20} color="#fff" />
+            </View>
           )}
         </View>
-        {farm.description && (
-          <AppText style={styles.farmDescription} color="#757575">
-            {farm.description}
+
+        {/* Farm Info */}
+        <View style={styles.farmInfoContainer}>
+          <AppText style={styles.farmName} fontWeight="bold" numberOfLines={1}>
+            {farm.name}
           </AppText>
-        )}
-        <View style={styles.farmFooter}>
-          <View
-            style={[
-              styles.statusBadge,
-              farm.status === 'active' && styles.statusBadgeActive,
-            ]}
-          >
-            <AppText
-              style={[
-                styles.statusText,
-                farm.status === 'active' && styles.statusTextActive,
-              ]}
-              fontSize={12}
-            >
-              {farm.status}
+          {farm.location && (
+            <AppText style={styles.farmLocation} color="#757575" numberOfLines={1}>
+              {farm.location}
+            </AppText>
+          )}
+          <View style={styles.syncBadge}>
+            <MaterialCommunityIcons 
+              name={isOnline ? 'cloud-check' : 'cloud-off-outline'} 
+              size={12} 
+              color={isOnline ? '#4CAF50' : '#FF9800'} 
+            />
+            <AppText style={styles.syncText} fontSize={10} color="#757575">
+              {formatDate(farm.last_sync_at)}
             </AppText>
           </View>
         </View>
@@ -176,6 +277,28 @@ const FarmPickerScreen = () => {
             onPress={handleLogout}
             style={styles.logoutButton}
           />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (syncing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader
+          title="Synchronisation"
+          subtitle="Récupération des données..."
+          showBackground={true}
+          showLogoutButton={false}
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2E7D32" />
+          <AppText style={styles.loadingText} color="#757575">
+            Synchronisation en cours...
+          </AppText>
+          <AppText style={styles.syncSubText} color="#9E9E9E" fontSize={12}>
+            Première synchronisation pour charger vos données
+          </AppText>
         </View>
       </SafeAreaView>
     );
@@ -300,6 +423,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
   },
+  syncSubText: {
+    marginTop: 8,
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -343,68 +469,59 @@ const styles = StyleSheet.create({
   farmCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
     marginBottom: 12,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    overflow: 'hidden',
   },
   farmCardActive: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#2E7D32',
-    backgroundColor: '#E8F5E9',
+    borderWidth: 2,
+    borderColor: '#2E7D32',
   },
-  farmCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  farmIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  farmImageContainer: {
+    width: '100%',
+    aspectRatio: 1,
     backgroundColor: '#E8F5E9',
+    position: 'relative',
+  },
+  farmImage: {
+    width: '100%',
+    height: '100%',
+  },
+  farmIconPlaceholder: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
-  farmInfo: {
-    flex: 1,
+  activeBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#2E7D32',
+    borderRadius: 12,
+    padding: 4,
+  },
+  farmInfoContainer: {
+    padding: 12,
   },
   farmName: {
     fontSize: 16,
     color: '#212121',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   farmLocation: {
     fontSize: 14,
+    marginBottom: 8,
   },
-  farmDescription: {
-    fontSize: 14,
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  farmFooter: {
+  syncBadge: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F5',
-  },
-  statusBadgeActive: {
-    backgroundColor: '#E8F5E9',
-  },
-  statusText: {
-    color: '#757575',
-    fontWeight: '500',
-  },
-  statusTextActive: {
-    color: '#2E7D32',
+  syncText: {
+    marginLeft: 4,
   },
   logoutContainer: {
     marginTop: 24,

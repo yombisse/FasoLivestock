@@ -8,6 +8,7 @@ import FarmPickerScreen from '../../screens/farm/FarmPickerScreen';
 import { authStorage } from '../../storage/authStorage';
 import { farmStorage } from '../../storage/farmStorage';
 import { Farm } from '../../types/farm.types';
+import {cleanupInvalidCategoryTransactions} from '../../database/repositories/transactionRepository'
 
 type NavigationState = 'loading' | 'auth' | 'farmPicker' | 'main';
 
@@ -23,17 +24,24 @@ const AppNavigator = () => {
   const checkNavigationState = async () => {
     try {
       const token = await authStorage.getToken();
-      
+
       if (!token) {
         setNavigationState('auth');
         return;
       }
 
       const activeFarm = await farmStorage.getActiveFarm();
-      
+
       if (!activeFarm) {
         setNavigationState('farmPicker');
       } else {
+        // Clean up invalid category transactions on app start
+        try {
+           const cleanupInvalidCategoryTransactionsResult=await cleanupInvalidCategoryTransactions();
+           console.log('cleanupInvalidCategoryTransactionsResult', cleanupInvalidCategoryTransactionsResult);
+        } catch (cleanupError) {
+          console.error('Error cleaning up invalid category transactions:', cleanupError);
+        }
         setNavigationState('main');
       }
     } catch (error) {

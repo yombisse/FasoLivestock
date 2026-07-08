@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import AppText from '../../components/AppText';
 import AppHeader from '../../components/AppHeader';
 import { farmStorage } from '../../storage/farmStorage';
 import { Farm } from '../../types/farm.types';
 
 const AlimentationScreen = () => {
+  const navigation = useNavigation();
   const [activeFarm, setActiveFarm] = useState<Farm | null>(null);
 
   const loadActiveFarm = async () => {
@@ -28,6 +30,7 @@ const AlimentationScreen = () => {
         title="Alimentation"
         showBackground={true}
         showMenuButton={true}
+        onMenuPress={() => (navigation as any).openDrawer()}
       />
       <View style={styles.content}>
         <AppText style={styles.title} fontWeight="bold">

@@ -1,21 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
+  Image,
+  Modal,
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
+import AppBottomSheet, { BottomSheetOption, AppBottomSheetRef } from '../../../components/AppBottomSheet';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import animalService from '../../../services/animal.service';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import { getLocalAnimalById, deleteAnimal } from '../../../database/repositories/animalRepository';
+import { getLocalTypeEvenements } from '../../../database/repositories/typeEvenementRepository';
 
 type AnimalDetailRouteProp = RouteProp<CheptelStackParamList, 'AnimalDetail'>;
 type AnimalDetailNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalDetail'>;
@@ -24,16 +29,21 @@ const AnimalDetailScreen = () => {
   const navigation = useNavigation<AnimalDetailNavigationProp>();
   const route = useRoute<AnimalDetailRouteProp>();
   const { animalId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [animal, setAnimal] = useState<Animal | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [showFullScreenImage, setShowFullScreenImage] = useState<boolean>(false);
+  const [deleting, setDeleting] = useState<boolean>(false);
+  const [typeEvenements, setTypeEvenements] = useState<any[]>([]);
+  const actionSheetRef = useRef<AppBottomSheetRef>(null);
 
   const loadAnimal = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await animalService.getAnimal(animalId);
+      const data = await getLocalAnimalById(animalId);
       setAnimal(data);
     } catch (err: any) {
       setError(err.message || 'Erreur lors du chargement de l\'animal');
@@ -42,35 +52,103 @@ const AnimalDetailScreen = () => {
     }
   };
 
+  const loadTypeEvenements = async () => {
+    try {
+      const typeEvenementsData = await getLocalTypeEvenements();
+      // Filter to only show MOUVEMENT type evenements
+      const filteredTypeEvenements = typeEvenementsData.filter(
+        (type: any) => type.categorie === 'MOUVEMENT'
+      );
+      setTypeEvenements(filteredTypeEvenements);
+    } catch (error) {
+      console.error('Error loading type evenements:', error);
+    }
+  };
+
   useEffect(() => {
     loadAnimal();
+    loadTypeEvenements();
   }, [animalId]);
 
   const handleEdit = () => {
     navigation.navigate('AnimalForm', { animalId });
   };
 
-  const handleArchive = () => {
+  const handleActions = () => {
+    actionSheetRef.current?.present();
+  };
+
+  const handleTypeEvenementSelection = (typeEvenement: any) => {
+    actionSheetRef.current?.dismiss();
+    
+    // Navigate based on type evenement name
+    const nomType = typeEvenement.nom_type.toLowerCase();
+    
+    if (nomType.includes('transfert')) {
+      navigation.navigate('AnimalTransfert', { animalId, typeEvenementId: typeEvenement.id });
+    } else if (nomType.includes('vente')) {
+      navigation.navigate('AnimalVente', { animalId, typeEvenementId: typeEvenement.id });
+    } else if (nomType.includes('deces') || nomType.includes('décès')) {
+      navigation.navigate('AnimalDeces', { animalId, typeEvenementId: typeEvenement.id });
+    } else if (nomType.includes('perte')) {
+      navigation.navigate('AnimalPerte', { animalId, typeEvenementId: typeEvenement.id });
+    } else if (nomType.includes('abattage')) {
+      navigation.navigate('AnimalAbattage', { animalId, typeEvenementId: typeEvenement.id });
+    } else {
+      // Default: create event directly for other movement types
+      Alert.alert('Info', `Type d'événement ${typeEvenement.nom_type} non encore implémenté`);
+    }
+  };
+
+  const handleHistorique = () => {
+    actionSheetRef.current?.dismiss();
+    navigation.navigate('AnimalHistorique', { animalId });
+  };
+
+  const handleDelete = () => {
+    actionSheetRef.current?.dismiss();
+    
+    if (!animal) return;
+
     Alert.alert(
-      'Archiver l\'animal',
-      'Êtes-vous sûr de vouloir archiver cet animal ? Cette action est réversible.',
+      'Supprimer l\'animal',
+      `Cette action supprimera "${animal.nom}" et son historique restera consultable mais l'animal ne sera plus actif. Confirmer ?`,
       [
-        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Archiver',
+          text: 'Annuler',
+          style: 'cancel',
+        },
+        {
+          text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
             try {
-              await animalService.archiveAnimal(animalId);
+              setDeleting(true);
+              await deleteAnimal(animalId);
               navigation.goBack();
-            } catch (err: any) {
-              Alert.alert('Erreur', err.message || 'Erreur lors de l\'archivage');
+            } catch (error: any) {
+              Alert.alert('Erreur', error.message || 'Erreur lors de la suppression');
+              setDeleting(false);
             }
           },
         },
       ]
     );
   };
+
+  const actionSheetOptions: BottomSheetOption[] = [
+    // Dynamic movement type evenements
+    ...typeEvenements.map((type) => ({
+      id: type.id,
+      label: type.nom_type,
+      icon: 'swap-horizontal',
+      iconColor: '#30A15E',
+      onPress: () => handleTypeEvenementSelection(type),
+    })),
+    // Static options
+    { id: 'historique', label: 'Voir l\'historique', icon: 'history', iconColor: '#1976D2', onPress: handleHistorique },
+    { id: 'delete', label: 'Supprimer', icon: 'trash-can', iconColor: '#D32F2F', onPress: handleDelete },
+  ];
 
   // Couleurs avatar par espèce
   const getAvatarColor = (especeNom?: string) => {
@@ -109,6 +187,12 @@ const AnimalDetailScreen = () => {
         </AppText>
       </View>
     );
+  };
+
+  // Styles dynamiques
+  const imageSectionStyle = {
+    height: 300,
+    marginTop: -insets.top,
   };
 
   // Indicateur sync
@@ -204,28 +288,42 @@ const AnimalDetailScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <AppHeader
-        title="Détail animal"
-        showBackground={true}
-        showMenuButton={true}
-        onMenuPress={() => (navigation as any).openDrawer()}
-      />
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* Header réduit transparent */}
+      <View style={[styles.miniHeader, { paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleEdit}>
+          <MaterialCommunityIcons name="pencil" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView style={styles.content}>
-        {/* En-tête */}
-        <View style={styles.headerSection}>
-          <View
-            style={[
-              styles.avatarLarge,
-              { backgroundColor: getAvatarColor(animal.espece?.nom) },
-            ]}
-          >
-            <AppText style={styles.avatarLargeText}>
-              {animal.espece?.nom?.charAt(0) || '?'}
-            </AppText>
-          </View>
-          <View style={styles.headerInfo}>
+        {/* Image en grand */}
+        <View style={imageSectionStyle}>
+          {animal.photo ? (
+            <TouchableOpacity onPress={() => setShowFullScreenImage(true)} activeOpacity={0.8}>
+              <Image source={{ uri: animal.photo }} style={styles.largeImage} resizeMode="cover" />
+            </TouchableOpacity>
+          ) : (
+            <View
+              style={[
+                styles.largeImage,
+                styles.largeImagePlaceholder,
+                { backgroundColor: getAvatarColor(animal.espece?.nom) },
+              ]}
+            >
+              <AppText style={styles.avatarLargeText}>
+                {animal.espece?.nom?.charAt(0) || '?'}
+              </AppText>
+            </View>
+          )}
+        </View>
+
+        {/* Infos en bas */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoHeader}>
             <AppText style={styles.animalName} fontWeight="bold">
               {animal.nom}
             </AppText>
@@ -239,10 +337,9 @@ const AnimalDetailScreen = () => {
               {getSyncIndicator(animal.sync_status)}
             </View>
           </View>
-        </View>
 
-        {/* Identification */}
-        <View style={styles.section}>
+          {/* Identification */}
+          <View style={styles.section}>
           <AppText style={styles.sectionTitle} fontWeight="bold">
             Identification
           </AppText>
@@ -333,34 +430,77 @@ const AnimalDetailScreen = () => {
         </View>
 
         {/* Liens placeholder */}
-        <TouchableOpacity style={styles.linkItem} disabled>
-          <View style={styles.linkIcon}>
-            <MaterialCommunityIcons name="heart-pulse" size={24} color="#BDBDBD" />
-          </View>
-          <View style={styles.linkContent}>
-            <AppText style={styles.linkTitle} color="#BDBDBD" fontWeight="bold">
-              Santé
-            </AppText>
-            <AppText style={styles.linkSubtitle} color="#BDBDBD" fontSize={12}>
-              Disponible prochainement
-            </AppText>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />
-        </TouchableOpacity>
 
-        <TouchableOpacity style={styles.linkItem} disabled>
-          <View style={styles.linkIcon}>
-            <MaterialCommunityIcons name="swap-horizontal" size={24} color="#BDBDBD" />
+        <TouchableOpacity style={styles.linkItem} onPress={handleHistorique} activeOpacity={0.8}>
+          <View style={styles.linkIconActive}>
+            <MaterialCommunityIcons name="swap-horizontal" size={24} color="#1976D2" />
           </View>
           <View style={styles.linkContent}>
-            <AppText style={styles.linkTitle} color="#BDBDBD" fontWeight="bold">
+            <AppText style={styles.linkTitle} fontWeight="bold">
               Mouvements
             </AppText>
-            <AppText style={styles.linkSubtitle} color="#BDBDBD" fontSize={12}>
-              Disponible prochainement
+            <AppText style={styles.linkSubtitle} color="#757575" fontSize={12}>
+              Voir l'historique des mouvements
             </AppText>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#1976D2" />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.linkItem} 
+          onPress={() => navigation.navigate('AnimalSanteHistorique', { animalId })} 
+          activeOpacity={0.8}
+        >
+          <View style={[styles.linkIconActive, { backgroundColor: '#E8F5E9' }]}>
+            <MaterialCommunityIcons name="heart-pulse" size={24} color="#2E7D32" />
+          </View>
+          <View style={styles.linkContent}>
+            <AppText style={styles.linkTitle} fontWeight="bold">
+              Santé
+            </AppText>
+            <AppText style={styles.linkSubtitle} color="#757575" fontSize={12}>
+              Voir l'historique sanitaire
+            </AppText>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#2E7D32" />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.linkItem} 
+          onPress={() => navigation.navigate('AnimalReproductionHistorique', { animalId })} 
+          activeOpacity={0.8}
+        >
+          <View style={[styles.linkIconActive, { backgroundColor: '#F3E5F5' }]}>
+            <MaterialCommunityIcons name="reproduction" size={24} color="#7B1FA2" />
+          </View>
+          <View style={styles.linkContent}>
+            <AppText style={styles.linkTitle} fontWeight="bold">
+              Reproduction
+            </AppText>
+            <AppText style={styles.linkSubtitle} color="#757575" fontSize={12}>
+              Voir l'historique reproductif
+            </AppText>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#7B1FA2" />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.linkItem} 
+          onPress={() => navigation.navigate('AnimalTransactionHistorique', { animalId })} 
+          activeOpacity={0.8}
+        >
+          <View style={[styles.linkIconActive, { backgroundColor: '#FFF3E0' }]}>
+            <MaterialCommunityIcons name="cash" size={24} color="#F57C00" />
+          </View>
+          <View style={styles.linkContent}>
+            <AppText style={styles.linkTitle} fontWeight="bold">
+              Transactions
+            </AppText>
+            <AppText style={styles.linkSubtitle} color="#757575" fontSize={12}>
+              Voir l'historique transactionnel
+            </AppText>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#F57C00" />
         </TouchableOpacity>
 
         {/* Actions */}
@@ -370,13 +510,44 @@ const AnimalDetailScreen = () => {
             onPress={handleEdit}
             style={styles.actionButton}
           />
-          <AppButton
-            title="Archiver"
-            onPress={handleArchive}
-            style={styles.archiveButton}
-          />
+          {animal?.statut?.toUpperCase() === 'ACTIF' && (
+            <AppButton
+              title="Actions"
+              onPress={handleActions}
+              style={styles.actionButton}
+            />
+          )}
+        </View>
         </View>
       </ScrollView>
+
+      {/* Modal image plein écran */}
+      <Modal
+        visible={showFullScreenImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFullScreenImage(false)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={() => setShowFullScreenImage(false)}
+          >
+            <MaterialCommunityIcons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
+          <Image
+            source={{ uri: animal?.photo }}
+            style={styles.fullScreenImage}
+            resizeMode="contain"
+          />
+        </View>
+      </Modal>
+
+      {/* AppBottomSheet Actions */}
+      <AppBottomSheet
+        ref={actionSheetRef}
+        options={actionSheetOptions}
+      />
     </SafeAreaView>
   );
 };
@@ -384,10 +555,45 @@ const AnimalDetailScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#fff',
+  },
+  miniHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   content: {
     flex: 1,
+  },
+  imageSection: {
+    height: 300,
+  },
+  largeImage: {
+    width: '100%',
+    height: '100%',
+  },
+  largeImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoSection: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -24,
+    padding: 20,
+    minHeight: 400,
+  },
+  infoHeader: {
+    marginBottom: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -503,11 +709,28 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  linkItemDisabled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    padding: 16,
+    marginBottom: 12,
+    opacity: 0.7,
+  },
   linkIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  linkIconActive: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E3F2FD',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -534,6 +757,23 @@ const styles = StyleSheet.create({
   archiveButton: {
     flex: 1,
     backgroundColor: '#D32F2F',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 8,
+  },
+  fullScreenImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 
