@@ -1,5 +1,6 @@
 import { getDatabase } from '../connection';
 import { BatchStatement } from '../batchTypes';
+import { createLocalRecord } from './baseRepository';
 
 export interface TypeEvenement {
   id: string;
@@ -14,6 +15,23 @@ export interface TypeEvenement {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+}
+
+export async function createTypeEvenement(data: Omit<TypeEvenement, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<TypeEvenement> {
+  const db = await getDatabase();
+  
+  // Check for duplicate nom_type
+  if (data.nom_type) {
+    const existingType = await db.execute(
+      `SELECT id FROM type_evenements WHERE nom_type = ? AND deleted_at IS NULL`,
+      [data.nom_type]
+    );
+    if (existingType?.rows && existingType.rows.length > 0) {
+      throw new Error(`Un type d'événement avec le nom "${data.nom_type}" existe déjà.`);
+    }
+  }
+  
+  return createLocalRecord<TypeEvenement>('type_evenements', data);
 }
 
 export async function getLocalTypeEvenements(): Promise<TypeEvenement[]> {

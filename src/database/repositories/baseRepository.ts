@@ -22,13 +22,27 @@ export async function createLocalRecord<T extends Record<string, any>>(
     // Begin transaction
     await db.execute('BEGIN TRANSACTION');
 
-    // Insert into table
+    // Check if record already exists (by ID)
+    const existingRecord = await db.execute(`SELECT id FROM ${tableName} WHERE id = ?`, [id]);
+    if (existingRecord?.rows && existingRecord.rows.length > 0) {
+      await db.execute('ROLLBACK');
+      throw new Error(`Record with id ${id} already exists in ${tableName}. Duplicate insertion prevented.`);
+    }
+
+    // Insert into table using INSERT OR IGNORE to handle UNIQUE constraints
     const columns = Object.keys(recordToInsert);
     const placeholders = columns.map(() => '?').join(', ');
     const values = Object.values(recordToInsert);
     
-    const insertSQL = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+    const insertSQL = `INSERT OR IGNORE INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
     await db.execute(insertSQL, values);
+
+    // Check if insertion was successful
+    const insertedRecord = await db.execute(`SELECT id FROM ${tableName} WHERE id = ?`, [id]);
+    if (!insertedRecord?.rows || insertedRecord.rows.length === 0) {
+      await db.execute('ROLLBACK');
+      throw new Error(`Failed to insert record in ${tableName}. Possible UNIQUE constraint violation.`);
+    }
 
     // Insert into sync_queue
     const syncQueueSQL = `
@@ -43,6 +57,8 @@ export async function createLocalRecord<T extends Record<string, any>>(
       'pending',
       now,
     ]);
+
+    console.log(`[BaseRepository] Created sync_queue entry for ${tableName}/${id} with status pending`);
 
     // Commit transaction
     await db.execute('COMMIT');

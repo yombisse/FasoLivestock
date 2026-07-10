@@ -1,5 +1,6 @@
 import { getDatabase } from '../connection';
 import { BatchStatement } from '../batchTypes';
+import { createLocalRecord } from './baseRepository';
 
 export interface Categorie {
   id: string;
@@ -13,6 +14,23 @@ export interface Categorie {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+}
+
+export async function createCategorie(data: Omit<Categorie, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<Categorie> {
+  const db = await getDatabase();
+  
+  // Check for duplicate nom_categorie
+  if (data.nom_categorie) {
+    const existingCategorie = await db.execute(
+      `SELECT id FROM categories WHERE nom_categorie = ? AND deleted_at IS NULL`,
+      [data.nom_categorie]
+    );
+    if (existingCategorie?.rows && existingCategorie.rows.length > 0) {
+      throw new Error(`Une catégorie avec le nom "${data.nom_categorie}" existe déjà.`);
+    }
+  }
+  
+  return createLocalRecord<Categorie>('categories', data);
 }
 
 export async function getLocalCategories(): Promise<Categorie[]> {

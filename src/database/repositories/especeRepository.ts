@@ -14,6 +14,23 @@ export interface Espece {
   deleted_at?: string | null;
 }
 
+export async function createEspece(data: Omit<Espece, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<Espece> {
+  const db = await getDatabase();
+  
+  // Check for duplicate nom
+  if (data.nom) {
+    const existingEspece = await db.execute(
+      `SELECT id FROM especes WHERE nom = ? AND deleted_at IS NULL`,
+      [data.nom]
+    );
+    if (existingEspece?.rows && existingEspece.rows.length > 0) {
+      throw new Error(`Une espèce avec le nom "${data.nom}" existe déjà.`);
+    }
+  }
+  
+  return createLocalRecord<Espece>('especes', data);
+}
+
 export async function getLocalEspeces(): Promise<Espece[]> {
   const db = await getDatabase();
 

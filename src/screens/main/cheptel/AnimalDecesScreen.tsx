@@ -114,11 +114,7 @@ const AnimalDecesScreen = () => {
         categorie: 'SANITAIRE',
         statut_avant: animalContext?.statut || 'ACTIF',
         statut_apres: 'MORT',
-        sync_status: 'pending',
         last_modified_by: userId,
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       });
 
       // Update animal status locally (optimistic update)

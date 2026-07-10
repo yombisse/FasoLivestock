@@ -253,6 +253,24 @@ async function runMigrations(db: any): Promise<void> {
       }
     }
 
+    // Migration 7: Add last_retry_at and sync_request_id columns to sync_queue for idempotence and backoff
+    if (!(await isMigrationApplied(7))) {
+      try {
+        await db.execute(`ALTER TABLE sync_queue ADD COLUMN last_retry_at TEXT`);
+        await db.execute(`ALTER TABLE sync_queue ADD COLUMN sync_request_id TEXT`);
+        console.log('[SQLite Migration] Added last_retry_at and sync_request_id columns to sync_queue');
+        await markMigrationApplied(7);
+      } catch (error: any) {
+        // Column might already exist, ignore error
+        if (!error.message?.includes('duplicate column')) {
+          console.warn('[SQLite Migration] Failed to add last_retry_at/sync_request_id columns to sync_queue:', error);
+        } else {
+          // Mark as applied even if column already exists
+          await markMigrationApplied(7);
+        }
+      }
+    }
+
     console.log('[SQLite] Migrations completed');
   } catch (error) {
     console.error('[SQLite] Migrations failed:', error);

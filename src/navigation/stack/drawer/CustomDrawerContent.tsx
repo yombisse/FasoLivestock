@@ -18,6 +18,7 @@ import { Farm } from '../../../types/farm.types';
 import { getDatabase } from '../../../database/connection';
 import { fullSync } from '../../../sync/syncService';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
+import { syncEvents } from '../../../sync/syncEvents';
 
 const { width } = Dimensions.get('window');
 
@@ -60,6 +61,7 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
       const pendingCount = pendingResult?.rows?.[0]?.count || 0;
       const failedCount = failedResult?.rows?.[0]?.count || 0;
 
+      console.log('[CustomDrawerContent] Sync queue counts - pending:', pendingCount, 'failed:', failedCount);
       setPendingItemsCount(pendingCount);
       setFailedItemsCount(failedCount);
     } catch (error) {
@@ -73,9 +75,10 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
     try {
       setSyncing(true);
       await fullSync(activeFarm.id);
+      console.log('[CustomDrawerContent] Manual sync completed, refreshing counts');
       await loadSyncQueueCounts();
     } catch (error) {
-      console.error('Manual sync failed:', error);
+      console.error('[CustomDrawerContent] Manual sync failed:', error);
     } finally {
       setSyncing(false);
     }
@@ -105,14 +108,33 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   };
 
   const navigateToScreen = (screenName: string) => {
-    props.navigation.navigate(screenName);
-    props.navigation.closeDrawer();
+    try {
+      props.navigation.closeDrawer();
+      // Navigate to MainTabs with the specific tab
+      if (screenName === 'MainTabs') {
+        props.navigation.navigate('MainTabs');
+      } else {
+        props.navigation.navigate('SyncConflicts');
+      }
+    } catch (error) {
+      console.error('Error navigating:', error);
+    }
   };
 
   useEffect(() => {
     loadUserData();
     loadActiveFarm();
     loadSyncQueueCounts();
+
+    // Subscribe to sync events to refresh counts when sync completes
+    const unsubscribeFullSync = syncEvents.subscribe('sync:full:completed', () => {
+      console.log('[CustomDrawerContent] Sync full completed event received, refreshing counts');
+      loadSyncQueueCounts();
+    });
+
+    return () => {
+      unsubscribeFullSync();
+    };
   }, []);
 
   const getInitials = (name: string) => {
@@ -128,10 +150,11 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
     label: string,
     icon: string,
     screenName: string,
-    isActive: boolean
+    isActive: boolean,
+    uniqueKey: string
   ) => (
     <TouchableOpacity
-      key={screenName}
+      key={uniqueKey}
       style={[styles.navItem, isActive && styles.navItemActive]}
       onPress={() => navigateToScreen(screenName)}
       activeOpacity={0.7}
@@ -190,10 +213,11 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
       <ScrollView style={styles.content}>
         {/* Navigation principale */}
         <View style={styles.navSection}>
-          {renderNavItem('Accueil', 'home', 'Home', props.state.index === 0)}
-          {renderNavItem('Cheptel', 'cow', 'Cheptel', props.state.index === 1)}
-          {renderNavItem('Alimentation', 'leaf', 'Alimentation', props.state.index === 2)}
-          {renderNavItem('Santé', 'medical-bag', 'Sante', props.state.index === 3)}
+          {renderNavItem('Accueil', 'home', 'MainTabs', props.state.index === 0, 'home')}
+          {renderNavItem('Cheptel', 'cow', 'MainTabs', props.state.index === 1, 'cheptel')}
+          {renderNavItem('Reproduction', 'gender-male-female', 'MainTabs', props.state.index === 2, 'reproduction')}
+          {renderNavItem('Santé', 'medical-bag', 'MainTabs', props.state.index === 3, 'sante')}
+          {renderNavItem('Finance', 'cash', 'MainTabs', props.state.index === 4, 'finance')}
         </View>
 
         {/* Section secondaire */}
@@ -271,7 +295,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    width: width * 0.8,
   },
   header: {
     backgroundColor: '#2E7D32',

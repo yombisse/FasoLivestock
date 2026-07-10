@@ -1,21 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
-import AppBottomSheet, { BottomSheetOption, AppBottomSheetRef } from '../../../components/AppBottomSheet';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Transaction } from '../../../types/transaction.types';
-import { getLocalTransactionById, deleteTransaction, restoreTransaction } from '../../../database/repositories/transactionRepository';
+import { getLocalTransactionById } from '../../../database/repositories/transactionRepository';
 import transactionService from '../../../services/transaction.service';
 
 type TransactionDetailRouteProp = RouteProp<{ TransactionDetail: { transactionId: string } }, 'TransactionDetail'>;
@@ -28,7 +26,6 @@ const TransactionDetailScreen = () => {
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const actionSheetRef = useRef<AppBottomSheetRef>(null);
 
   const loadTransaction = async () => {
     try {
@@ -43,68 +40,12 @@ const TransactionDetailScreen = () => {
     }
   };
 
-  useEffect(() => {
-    loadTransaction();
-  }, [transactionId]);
-
-  const handleEdit = () => {
-    if (transaction?.animal_id) {
-      Alert.alert(
-        'Modification impossible',
-        'Les transactions liées à un animal sont immuables.'
-      );
-      return;
-    }
-    navigation.navigate('TransactionForm', { transactionId });
-  };
-
-  const handleActions = () => {
-    actionSheetRef.current?.present();
-  };
-
-  const handleDelete = async () => {
-    actionSheetRef.current?.dismiss();
-    
-    if (transaction?.animal_id) {
-      Alert.alert(
-        'Suppression impossible',
-        'Les transactions liées à un animal sont immuables.'
-      );
-      return;
-    }
-
-    Alert.alert(
-      'Supprimer la transaction',
-      'Êtes-vous sûr de vouloir supprimer cette transaction ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { deleteTransaction } = await import('../../../database/repositories/transactionRepository');
-              await deleteTransaction(transactionId);
-              navigation.goBack();
-            } catch (err: any) {
-              Alert.alert('Erreur', err.message || 'Erreur lors de la suppression');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleRestore = async () => {
-    actionSheetRef.current?.dismiss();
-    try {
-      const { restoreTransaction } = await import('../../../database/repositories/transactionRepository');
-      await restoreTransaction(transactionId);
+  // Reload transaction when screen is focused to update sync status dynamically
+  useFocusEffect(
+    React.useCallback(() => {
       loadTransaction();
-    } catch (err: any) {
-      Alert.alert('Erreur', err.message || 'Erreur lors de la restauration');
-    }
-  };
+    }, [transactionId])
+  );
 
   const getTransactionIcon = (type?: string) => {
     switch (type) {
@@ -184,15 +125,6 @@ const TransactionDetailScreen = () => {
     }
   };
 
-  const actionSheetOptions: BottomSheetOption[] = transaction?.deleted_at
-    ? [
-        { id: 'restore', label: 'Restaurer', icon: 'restore', iconColor: '#2E7D32', onPress: handleRestore },
-      ]
-    : [
-        { id: 'edit', label: 'Modifier', icon: 'pencil', iconColor: '#1976D2', onPress: handleEdit },
-        { id: 'delete', label: 'Supprimer', icon: 'delete', iconColor: '#D32F2F', onPress: handleDelete },
-      ];
-
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -257,11 +189,11 @@ const TransactionDetailScreen = () => {
           </View>
 
           {/* Transaction ID */}
-          {transaction.numero_transaction && (
+          {transaction.id && (
             <View style={styles.ticketRow}>
-              <AppText style={styles.ticketLabel} color="#9E9E9E" fontSize={11}>N° Transaction</AppText>
-              <AppText style={styles.ticketId} fontFamily="monospace" fontSize={12}>
-                #{transaction.numero_transaction}
+              <AppText style={styles.ticketLabel} color="#9E9E9E" fontSize={11}>ID Transaction</AppText>
+              <AppText style={styles.ticketId} fontSize={12}>
+                #{transaction.id.substring(0, 8)}
               </AppText>
             </View>
           )}
@@ -298,7 +230,7 @@ const TransactionDetailScreen = () => {
                 <View style={styles.animalTag}>
                   <MaterialCommunityIcons name="cow" size={14} color="#2E7D32" />
                   <AppText style={styles.animalTagText} fontSize={12}>
-                    {transaction.animal?.nom || transaction.animal?.numero_identification || 'Animal'}
+                    {transaction.animal?.nom || 'Animal'}
                   </AppText>
                 </View>
               </View>
@@ -317,14 +249,7 @@ const TransactionDetailScreen = () => {
           <View style={styles.ticketNotchLeft} />
           <View style={styles.ticketNotchRight} />
         </View>
-
-        {/* Action Button */}
-        <TouchableOpacity style={styles.actionButton} onPress={handleActions}>
-          <MaterialCommunityIcons name="dots-horizontal" size={24} color="#757575" />
-        </TouchableOpacity>
       </ScrollView>
-
-      <AppBottomSheet ref={actionSheetRef} options={actionSheetOptions} />
     </SafeAreaView>
   );
 };
@@ -463,18 +388,6 @@ const styles = StyleSheet.create({
   },
   animalTagText: {
     color: '#2E7D32',
-  },
-  actionButton: {
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 12,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   syncIndicator: {
     flexDirection: 'row',

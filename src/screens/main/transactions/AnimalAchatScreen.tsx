@@ -19,6 +19,7 @@ import { createTransaction } from '../../../database/repositories/transactionRep
 import { createAnimal } from '../../../database/repositories/animalRepository';
 import { createLocalRecord } from '../../../database/repositories/baseRepository';
 import { getTypeEvenementIdByName, getLocalTypeEvenements } from '../../../database/repositories/typeEvenementRepository';
+import { getLocalCategories } from '../../../database/repositories/categorieRepository';
 import { getLocalEspeces } from '../../../database/repositories/especeRepository';
 import transactionService from '../../../services/transaction.service';
 import { farmStorage } from '../../../storage/farmStorage';
@@ -50,12 +51,12 @@ const AnimalAchatScreen = () => {
   const [animalNom, setAnimalNom] = useState('');
   const [animalEspeceId, setAnimalEspeceId] = useState('');
   const [animalRace, setAnimalRace] = useState('');
-  const [animalSexe, setAnimalSexe] = useState<'male' | 'femelle'>('male');
+  const [animalSexe, setAnimalSexe] = useState<'MALE' | 'FEMELLE'>('MALE');
   const [animalPoids, setAnimalPoids] = useState('');
 
   const SEXE_OPTIONS: AppSelectOption[] = [
-    { label: 'Mâle', value: 'male' },
-    { label: 'Femelle', value: 'femelle' },
+    { label: 'Mâle', value: 'MALE' },
+    { label: 'Femelle', value: 'FEMELLE' },
   ];
 
   const loadActiveFarm = async () => {
@@ -63,6 +64,14 @@ const AnimalAchatScreen = () => {
       const farm = await farmStorage.getActiveFarm();
       if (farm) {
         setFarmId(farm.id);
+        // Load expense categories if categorieId not provided
+        if (!categorieId) {
+          const localCategories = await getLocalCategories();
+          const expenseCategories = localCategories.filter((cat: any) => cat.type === 'DEPENSE');
+          if (expenseCategories.length > 0) {
+            console.log('[AnimalAchatScreen] Using first expense category as fallback');
+          }
+        }
       } else {
         setError('Aucune ferme active sélectionnée');
       }
@@ -135,7 +144,7 @@ const AnimalAchatScreen = () => {
         poids: animalPoids ? parseFloat(animalPoids) : undefined,
         statut: 'ACTIF',
       });
-      console.log('[AnimalAchatScreen] Created animal with ID:', newAnimal.id);
+      console.log('[AnimalAchatScreen] Created animal with ID:', newAnimal.id, 'numero:', animalNumero);
 
       // Step 2: Get type_evenement_id for 'Achat' from loaded type evenements
       const achatTypeEvenement = typeEvenements.find(
@@ -280,11 +289,11 @@ const AnimalAchatScreen = () => {
             mode="date"
           />
 
-          <AppText style={styles.label}>Vendeur (optionnel)</AppText>
+          <AppText style={styles.label}>Provenance</AppText>
           <AppTextInput
             value={tiers}
             onChangeText={setTiers}
-            placeholder="Nom du vendeur"
+            placeholder="provenace"
           />
 
           <AppText style={styles.label}>Description</AppText>

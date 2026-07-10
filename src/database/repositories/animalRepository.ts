@@ -3,7 +3,27 @@ import { createLocalRecord, updateLocalRecord, softDeleteLocalRecord } from './b
 import { getDatabase } from '../connection';
 
 export async function createAnimal(data: Omit<Animal, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<Animal> {
-  return createLocalRecord<Animal>('animals', data);
+  const db = await getDatabase();
+
+  // Check for duplicate numero_identification within the same farm
+  if (data.farm_id && data.numero_identification) {
+    const existingAnimal = await db.execute(
+      `SELECT id FROM animals WHERE farm_id = ? AND numero_identification = ? AND deleted_at IS NULL`,
+      [data.farm_id, data.numero_identification]
+    );
+    if (existingAnimal?.rows && existingAnimal.rows.length > 0) {
+      throw new Error(`Un animal avec le numéro d'identification "${data.numero_identification}" existe déjà dans cette ferme.`);
+    }
+  }
+
+  try {
+    const result = await createLocalRecord<Animal>('animals', data);
+    console.log('[AnimalRepository] Animal created successfully with sync_status pending, ID:', result.id);
+    return result;
+  } catch (error) {
+    console.error('[AnimalRepository] Failed to create animal:', error);
+    throw error;
+  }
 }
 
 export async function updateAnimal(id: string, data: Partial<Animal>): Promise<Animal> {

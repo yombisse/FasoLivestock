@@ -19,7 +19,7 @@ const MainDrawer = () => {
         headerShown: false,
         drawerStyle: {
           backgroundColor: '#FFFFFF',
-          width: '80%',
+          width: 280,
         },
       }}
     >

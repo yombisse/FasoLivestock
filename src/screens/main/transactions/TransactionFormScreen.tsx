@@ -16,7 +16,10 @@ import AppSelect, { AppSelectOption } from '../../../components/AppSelect';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import { Transaction, TransactionType, CreateTransactionData, UpdateTransactionData } from '../../../types/transaction.types';
 import { getLocalTransactionById } from '../../../database/repositories/transactionRepository';
+import { getLocalCategories } from '../../../database/repositories/categorieRepository';
 import transactionService from '../../../services/transaction.service';
+import { creerEvenementDepuisTransaction } from '../../../services/evenementTransactionService';
+import { getTypeEvenementIdByName } from '../../../database/repositories/typeEvenementRepository';
 import { farmStorage } from '../../../storage/farmStorage';
 
 type TransactionFormRouteProp = RouteProp<any, 'TransactionForm'>;
@@ -40,6 +43,7 @@ const TransactionFormScreen = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<AppSelectOption[]>([]);
 
   const [typeTransaction, setTypeTransaction] = useState<TransactionType>('ENTREE');
   const [montant, setMontant] = useState('');
@@ -60,6 +64,19 @@ const TransactionFormScreen = () => {
     } catch (error) {
       console.error('Error loading active farm:', error);
       setError('Erreur lors du chargement de la ferme active');
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const localCategories = await getLocalCategories();
+      const categoryOptions: AppSelectOption[] = localCategories.map(cat => ({
+        label: cat.nom_categorie,
+        value: cat.id,
+      }));
+      setCategories(categoryOptions);
+    } catch (error) {
+      console.error('Error loading categories:', error);
     }
   };
 
@@ -90,6 +107,7 @@ const TransactionFormScreen = () => {
 
   useEffect(() => {
     loadActiveFarm();
+    loadCategories();
   }, []);
 
   useEffect(() => {
@@ -148,7 +166,22 @@ const TransactionFormScreen = () => {
         await updateTransaction(transactionId, updateData);
       } else {
         const { createTransaction } = await import('../../../database/repositories/transactionRepository');
-        await createTransaction(transactionData);
+        const createdTransaction = await createTransaction(transactionData);
+
+        // Create corresponding event if transaction has animal_id and no evenement_id
+        if (animalId && !evenementId && parseFloat(montant) > 0) {
+          const typeEvenementId = await getTypeEvenementIdByName('AUTRE');
+          if (typeEvenementId) {
+            await creerEvenementDepuisTransaction({
+              transactionId: createdTransaction.id,
+              farmId: farmId,
+              animalId: animalId,
+              montant: parseFloat(montant),
+              dateTransaction: dateTransaction ? dateTransaction.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+              typeEvenementId: typeEvenementId,
+            });
+          }
+        }
       }
 
       navigation.goBack();
@@ -211,10 +244,11 @@ const TransactionFormScreen = () => {
           />
 
           <AppText style={styles.label}>Catégorie</AppText>
-          <AppTextInput
+          <AppSelect
+            placeholder="Sélectionner une catégorie"
             value={categorieId}
-            onChangeText={setCategorieId}
-            placeholder="ID de la catégorie (optionnel)"
+            options={categories}
+            onValueChange={setCategorieId}
           />
 
           <AppText style={styles.label}>Description</AppText>

@@ -238,7 +238,10 @@ export const SCHEMA_STATEMENTS: string[] = [
     status TEXT CHECK(status IN ('pending', 'synced', 'failed')) DEFAULT 'pending',
     error_message TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    synced_at TEXT
+    synced_at TEXT,
+    retry_count INTEGER DEFAULT 0,
+    last_retry_at TEXT,
+    sync_request_id TEXT
   )`,
 
   // sync_metadata
@@ -357,3 +360,15 @@ export const SCHEMA_STATEMENTS: string[] = [
     applied_at TEXT NOT NULL
   )`,
 ];
+
+// Migration statements for existing databases
+export const MIGRATION_STATEMENTS: Record<number, string[]> = {
+  1: [
+    // Add retry_count column to sync_queue
+    `ALTER TABLE sync_queue ADD COLUMN retry_count INTEGER DEFAULT 0`,
+    // Add last_retry_at column to sync_queue
+    `ALTER TABLE sync_queue ADD COLUMN last_retry_at TEXT`,
+    // Add sync_request_id column to sync_queue
+    `ALTER TABLE sync_queue ADD COLUMN sync_request_id TEXT`,
+  ],
+};

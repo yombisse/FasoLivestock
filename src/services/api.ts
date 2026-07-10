@@ -4,8 +4,8 @@ import { farmStorage } from '../storage/farmStorage';
 
 const API_BASE_URL = __DEV__ 
   ? 'http://10.125.2.24:8000/api' // Pour Android Emulator
-  : 'https://headscarf-spotless-onto.ngrok-free.dev/api'; // URL de production
-
+  : 'http://192.168.100.50:8000/api'
+//'https://headscarf-spotless-onto.ngrok-free.dev/api'; // URL de production
 const getErrorMessage = (error: any): string => {
   const backendMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message;
 

@@ -156,6 +156,7 @@ interface SyncPushRequest {
   changes: SyncChange[];
   last_sync_at: string | null;
   farm_id: string;
+  sync_request_id?: string;
 }
 
 interface SyncPushResponse {
@@ -166,6 +167,9 @@ interface SyncPushResponse {
       table: string;
       action: string;
       status: string;
+      error?: string;
+      code?: string;
+      reason?: string;
     }>;
     conflicts: Array<{
       table: string;
@@ -174,6 +178,7 @@ interface SyncPushResponse {
       server_data: Record<string, any>;
     }>;
     synced_at: string;
+    cached?: boolean;
   };
 }
 
@@ -230,6 +235,287 @@ async function getLocalSyncedRecords(db: any): Promise<Array<{ table: string; id
   }
 
   return records;
+}
+
+// ============================================================================
+// UUID generator for idempotence
+// ============================================================================
+
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function isNetworkError(error: any): boolean {
+  const errorMessage = error?.message?.toLowerCase() || '';
+  return errorMessage.includes('timeout') ||
+         errorMessage.includes('network') ||
+         errorMessage.includes('etimedout') ||
+         errorMessage.includes('enetunreach') ||
+         errorMessage.includes('5') ||
+         errorMessage.includes('502') ||
+         errorMessage.includes('503') ||
+         errorMessage.includes('504');
+}
+
+// ============================================================================
+// Automatic conflict resolution helper
+// ============================================================================
+
+const CRITICAL_TABLES = ['animals', 'transactions'];
+
+function resolveConflict(
+  item: SyncQueueItem,
+  conflict: any,
+  localRecord: any
+): { strategy: string, action: string } {
+  const isCritical = CRITICAL_TABLES.includes(item.table_name);
+
+  if (isCritical) {
+    // Server-wins pour les tables critiques
+    console.log(`[SyncService] Server-wins strategy for critical table: ${item.table_name}`);
+
+    return {
+      strategy: 'server-wins',
+      action: 'pull-server-version'
+    };
+  } else {
+    // Client-wins pour les tables non critiques
+    console.log(`[SyncService] Client-wins strategy for non-critical table: ${item.table_name}`);
+
+    return {
+      strategy: 'client-wins',
+      action: 'force-push'
+    };
+  }
+}
+
+// ============================================================================
+// Structured validation helper
+// ============================================================================
+
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+const REQUIRED_FIELDS: Record<string, string[]> = {
+  'animals': ['farm_id', 'statut'],
+  'evenements': ['farm_id', 'type_evenement_id', 'date_evenement'],
+  'transactions': ['farm_id', 'type_transaction', 'montant', 'date_transaction'],
+  'lots': ['farm_id', 'nom'],
+  'naissances': ['farm_id', 'animal_id', 'date_naissance'],
+};
+
+function validateChange(table: string, data: any): ValidationResult {
+  const errors: string[] = [];
+
+  // Validation UUID de l'ID principal
+  if (data.id && !isValidUUID(data.id)) {
+    errors.push(`Invalid UUID format for id: ${data.id}`);
+  }
+
+  // Validation des champs requis
+  const tableRequiredFields = REQUIRED_FIELDS[table] || [];
+  tableRequiredFields.forEach(field => {
+    if (data[field] === undefined || data[field] === null || data[field] === '') {
+      errors.push(`Missing required field: ${field}`);
+    }
+  });
+
+  // Validation des UUID des FK
+  const fkFields = ['animal_id', 'evenement_id', 'mother_id', 'farm_id', 'espece_id', 'lot_id', 'categorie_id', 'type_evenement_id'];
+  fkFields.forEach(field => {
+    if (data[field] && !isValidUUID(data[field])) {
+      errors.push(`Invalid UUID format for ${field}: ${data[field]}`);
+    }
+  });
+
+  // Validation des types spécifiques
+  if (table === 'transactions') {
+    if (data.montant !== undefined && (typeof data.montant !== 'number' || isNaN(data.montant))) {
+      errors.push(`Invalid montant type: must be a number, got ${typeof data.montant}`);
+    }
+    if (data.type_transaction && !['ENTREE', 'SORTIE', 'TRANSFERT', 'AJUSTEMENT'].includes(data.type_transaction)) {
+      errors.push(`Invalid type_transaction: must be ENTREE, SORTIE, TRANSFERT or AJUSTEMENT, got ${data.type_transaction}`);
+    }
+  }
+
+  if (table === 'animals') {
+    if (data.sexe && !['MALE', 'FEMELLE'].includes(data.sexe)) {
+      errors.push(`Invalid sexe: must be MALE or FEMELLE, got ${data.sexe}`);
+    }
+    if (data.statut && !['ACTIF', 'VENDU', 'DECEDE', 'PERDU', 'ABATTU'].includes(data.statut)) {
+      errors.push(`Invalid statut: must be one of ACTIF, VENDU, DECEDE, PERDU, ABATTU, got ${data.statut}`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// ============================================================================
+// FK error retry helper
+// ============================================================================
+
+async function retryFKErrors(
+  fkItems: Array<{ item: SyncQueueItem, change: SyncChange }>,
+  lastSyncAt: string,
+  farmId: string,
+  db: any,
+  retryCount: number = 0
+): Promise<{ success: number, failed: number }> {
+  if (fkItems.length === 0 || retryCount >= 3) {
+    return { success: 0, failed: fkItems.length };
+  }
+
+  console.log(`[SyncService] Retrying ${fkItems.length} FK errors (attempt ${retryCount + 1}/3)`);
+
+  const fkChanges = fkItems.map(({ change }) => change);
+  const fkPayload: SyncPushRequest = {
+    changes: fkChanges,
+    last_sync_at: lastSyncAt,
+    farm_id: farmId,
+    sync_request_id: generateUUID(),
+  };
+
+  try {
+    const response = await api.post('/sync/push', fkPayload);
+    const fkResults = response.data?.results || [];
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < fkItems.length; i++) {
+      const { item, change } = fkItems[i];
+      const result = fkResults[i];
+
+      if (result?.status === 'created' || result?.status === 'updated') {
+        await db.execute(
+          `UPDATE sync_queue SET status = 'synced', synced_at = ? WHERE id = ?`,
+          [new Date().toISOString(), item.id]
+        );
+        await db.execute(
+          `UPDATE ${item.table_name} SET sync_status = 'synced' WHERE id = ?`,
+          [item.record_id]
+        );
+        successCount++;
+      } else {
+        // Toujours en erreur FK, réessayer plus tard
+        console.warn(`[SyncService] FK retry failed for ${item.table_name}/${item.record_id}:`, result?.reason || result?.error);
+        failedCount++;
+      }
+    }
+
+    // Si certains items sont encore en erreur FK, réessayer récursivement
+    if (failedCount > 0 && retryCount < 2) {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1000)); // Attendre 1s avant retry
+      const remainingItems = fkItems.filter((_, i) =>
+        fkResults[i]?.status !== 'created' && fkResults[i]?.status !== 'updated'
+      );
+      const recursiveResult = await retryFKErrors(remainingItems, lastSyncAt, farmId, db, retryCount + 1);
+      successCount += recursiveResult.success;
+      failedCount = recursiveResult.failed;
+    }
+
+    return { success: successCount, failed: failedCount };
+  } catch (error) {
+    console.error('[SyncService] FK retry failed:', error);
+    return { success: 0, failed: fkItems.length };
+  }
+}
+
+// ============================================================================
+// Dependency-aware chunking helper
+// ============================================================================
+
+interface DependencyAwareChunk {
+  items: SyncQueueItem[];
+  changes: SyncChange[];
+  dependencyIds: Set<string>;
+}
+
+function createDependencyAwareChunks(
+  items: SyncQueueItem[],
+  changes: SyncChange[],
+  maxChunkSize: number = 50
+): DependencyAwareChunk[] {
+  const chunks: DependencyAwareChunk[] = [];
+  let currentChunk: DependencyAwareChunk = {
+    items: [],
+    changes: [],
+    dependencyIds: new Set()
+  };
+
+  const getDependencies = (data: any): string[] => {
+    const deps: string[] = [];
+    if (data.animal_id) deps.push(data.animal_id);
+    if (data.evenement_id) deps.push(data.evenement_id);
+    if (data.mother_id) deps.push(data.mother_id);
+    if (data.farm_id) deps.push(data.farm_id);
+    return deps;
+  };
+
+  const hasDependenciesInChunk = (dependencies: string[], chunk: DependencyAwareChunk): boolean => {
+    return dependencies.some(dep => chunk.dependencyIds.has(dep));
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const data = JSON.parse(item.data);
+    const dependencies = getDependencies(data);
+    const itemId = data.id;
+
+    // Vérifier si l'item a des dépendances dans le chunk courant
+    const depsInCurrentChunk = hasDependenciesInChunk(dependencies, currentChunk);
+
+    // Vérifier si l'item est une dépendance pour des items déjà dans le chunk
+    const isDependencyForChunk = currentChunk.dependencyIds.has(itemId);
+
+    // Si l'item n'est ni dépendant ni dépendance du chunk courant, et que le chunk n'est pas vide
+    // et qu'on a atteint la limite, commencer un nouveau chunk
+    if (!depsInCurrentChunk && !isDependencyForChunk &&
+        currentChunk.items.length > 0 && currentChunk.items.length >= maxChunkSize) {
+      chunks.push(currentChunk);
+      currentChunk = {
+        items: [],
+        changes: [],
+        dependencyIds: new Set()
+      };
+    }
+
+    // Ajouter l'item au chunk courant
+    currentChunk.items.push(item);
+    currentChunk.changes.push(changes[i]);
+
+    // Ajouter l'ID et ses dépendances au set de dépendances du chunk
+    if (itemId) currentChunk.dependencyIds.add(itemId);
+    dependencies.forEach(dep => currentChunk.dependencyIds.add(dep));
+
+    // Force le nouveau chunk si on dépasse significativement la limite (sécurité)
+    if (currentChunk.items.length >= maxChunkSize * 1.5) {
+      console.warn(`[SyncService] Chunk size exceeded safety limit (${currentChunk.items.length}), forcing new chunk`);
+      chunks.push(currentChunk);
+      currentChunk = {
+        items: [],
+        changes: [],
+        dependencyIds: new Set()
+      };
+    }
+  }
+
+  // Ajouter le dernier chunk s'il n'est pas vide
+  if (currentChunk.items.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  console.log(`[SyncService] Created ${chunks.length} dependency-aware chunks from ${items.length} items`);
+  return chunks;
 }
 
 // ============================================================================
@@ -328,14 +614,41 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
       console.log(`[SyncService] Reset ${resetCount[0].count} failed items with FK errors to pending for retry`);
     }
 
+    // Clean up items that have exceeded max retry count (5 retries)
+    await db.execute(
+      `DELETE FROM sync_queue WHERE status = 'failed' AND retry_count >= 5`
+    );
+    const cleanupCount = await db.execute(`SELECT changes() as count`);
+    if (cleanupCount?.[0]?.count > 0) {
+      console.log(`[SyncService] Cleaned up ${cleanupCount[0].count} items that exceeded max retry count`);
+    }
+
     const queueResult = await db.execute(
       `SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY created_at ASC`
     );
-    let pendingItems: SyncQueueItem[] = [];
+    let allPendingItems: SyncQueueItem[] = [];
     if (queueResult?.rows) {
-      pendingItems = queueResult.rows as SyncQueueItem[];
+      allPendingItems = queueResult.rows as SyncQueueItem[];
     } else if (Array.isArray(queueResult)) {
-      pendingItems = queueResult as SyncQueueItem[];
+      allPendingItems = queueResult as SyncQueueItem[];
+    }
+
+    // Filtrer les items qui ne doivent pas être retryés maintenant (backoff)
+    function shouldRetryNow(item: SyncQueueItem): boolean {
+      if ((item.retry_count || 0) === 0 || !item.last_retry_at) {
+        return true; // Premier essai ou pas de timestamp
+      }
+
+      const timeSinceLastRetry = Date.now() - new Date(item.last_retry_at).getTime();
+      const backoffDelay = Math.pow(2, item.retry_count || 0) * 1000; // 2^retry_count secondes en ms
+
+      return timeSinceLastRetry >= backoffDelay;
+    }
+
+    let pendingItems = allPendingItems.filter(item => shouldRetryNow(item));
+    const skippedCount = allPendingItems.length - pendingItems.length;
+    if (skippedCount > 0) {
+      console.log(`[SyncService] Skipped ${skippedCount} items waiting for backoff`);
     }
 
     if (pendingItems.length === 0) {
@@ -347,7 +660,8 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
     console.log(`[SyncService] Sorted pending items by dependency order`);
 
     for (const item of pendingItems) {
-      console.log(`[SyncService] Pending item: table=${item.table_name}, action=${item.action}, record_id=${item.record_id}`);
+      const data = JSON.parse(item.data);
+      console.log(`[SyncService] Pending item: table=${item.table_name}, action=${item.action}, record_id=${item.record_id}, animal_id=${data.animal_id}, id=${data.id}`);
     }
 
     let farmId = null;
@@ -376,43 +690,79 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
     }
 
     const changes: SyncChange[] = [];
+    const validatedItems: SyncQueueItem[] = [];
+
     for (const item of pendingItems) {
       let data = JSON.parse(item.data);
+
+      // Validation avant envoi
+      const validation = validateChange(item.table_name, data);
+      if (!validation.valid) {
+        console.error(`[SyncService] Validation failed for ${item.table_name}/${item.record_id}:`, validation.errors);
+        await db.execute(
+          `UPDATE sync_queue SET status = 'failed', error_message = ? WHERE id = ?`,
+          [`Validation error: ${validation.errors.join(', ')}`, item.id]
+        );
+        await db.execute(
+          `UPDATE ${item.table_name} SET sync_status = 'pending' WHERE id = ?`,
+          [item.record_id]
+        );
+        continue;
+      }
+
       data = await normalizeForeignKeys(db, item.table_name, data);
+      console.log(`[SyncService] Sending ${item.table_name}/${item.record_id} to server:`, JSON.stringify(data, null, 2));
       changes.push({
         table: item.table_name,
         action: item.action,
         data: data,
       });
+      validatedItems.push(item);
     }
 
-    // PHASE 4: Chunking for large volumes - split into chunks of 50 items max
+    // Remplacer pendingItems par validatedItems
+    pendingItems = validatedItems;
+
+    // PHASE 4: Dependency-aware chunking - group dependent items together
     const CHUNK_SIZE = 50;
-    const chunks: Array<{ items: typeof pendingItems, changes: SyncChange[] }> = [];
-    
-    for (let i = 0; i < pendingItems.length; i += CHUNK_SIZE) {
-      chunks.push({
-        items: pendingItems.slice(i, i + CHUNK_SIZE),
-        changes: changes.slice(i, i + CHUNK_SIZE),
-      });
-    }
-
-    console.log(`[SyncService] Splitting ${pendingItems.length} items into ${chunks.length} chunk(s)`);
+    const chunks = createDependencyAwareChunks(pendingItems, changes, CHUNK_SIZE);
 
     let totalSuccessCount = 0;
     let totalFailedCount = 0;
 
     // Process each chunk sequentially
     for (const chunk of chunks) {
+      const syncRequestId = generateUUID();
+
+      // Store sync_request_id for each item in the chunk
+      for (const item of chunk.items) {
+        await db.execute(
+          `UPDATE sync_queue SET sync_request_id = ? WHERE id = ?`,
+          [syncRequestId, item.id]
+        );
+      }
+
       const payload: SyncPushRequest = {
         changes: chunk.changes,
         last_sync_at: lastSyncAt,
         farm_id: farmId,
+        sync_request_id: syncRequestId,
       };
 
-      console.log(`[SyncService] Sending chunk with ${chunk.changes.length} items`);
+      console.log(`[SyncService] Sending chunk with ${chunk.changes.length} items, sync_request_id: ${syncRequestId}`);
 
-      const response = await api.post('/sync/push', payload);
+      let response;
+      try {
+        response = await api.post('/sync/push', payload);
+
+        // Check if response is cached
+        if (response.data?.cached) {
+          console.log(`[SyncService] Using cached response for sync_request_id: ${syncRequestId}`);
+        }
+      } catch (error: any) {
+        // Network error - will be handled in the error processing below
+        throw error;
+      }
       const responseData = response.data as SyncPushResponse;
 
       console.log('[SyncService] Server response:', JSON.stringify(responseData, null, 2));
@@ -437,29 +787,47 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
           const conflict = conflicts.find((c) => c.record_id === item.record_id && c.table === item.table_name);
 
           if (conflict) {
-            console.warn(`[SyncService] Conflict detected for item ${item.id} (${item.table_name}): ${conflict.reason}. Marking for manual resolution.`);
-            
+            console.warn(`[SyncService] Conflict detected for item ${item.id} (${item.table_name}): ${conflict.reason}`);
+
             // Get current local record data
             const localRecordResult = await db.execute(`SELECT * FROM ${item.table_name} WHERE id = ?`, [item.record_id]);
             const localRecord = localRecordResult?.[0];
-            
-            // Store both versions in sync_queue for conflict resolution UI
-            await db.execute(
-              `UPDATE sync_queue SET status = 'failed', error_message = ?, conflict_local_data = ?, conflict_server_data = ? WHERE id = ?`,
-              [
-                  `Conflict: ${conflict.reason}`,
-                JSON.stringify(localRecord),
-                JSON.stringify(conflict.server_data),
-                item.id
-              ]
-            );
-            
-            // Mark local record as conflict
-            await db.execute(
-              `UPDATE ${item.table_name} SET sync_status = 'conflict' WHERE id = ?`,
-              [item.record_id]
-            );
-            
+
+            const resolution = resolveConflict(item, conflict, localRecord);
+
+            if (resolution.strategy === 'server-wins') {
+              // Marquer pour pull automatique de la version serveur
+              await db.execute(
+                `UPDATE sync_queue SET status = 'pending', error_message = 'Conflict: server-wins - will pull server version on next sync' WHERE id = ?`,
+                [item.id]
+              );
+
+              // Marquer le record local pour pull
+              await db.execute(
+                `UPDATE ${item.table_name} SET sync_status = 'conflict' WHERE id = ?`,
+                [item.record_id]
+              );
+
+              console.log(`[SyncService] Item ${item.id} marked for server version pull`);
+            } else {
+              // Client-wins: incrémenter la version et retry
+              const newVersion = (conflict.server_data?.version || 0) + 1;
+
+              await db.execute(
+                `UPDATE ${item.table_name} SET version = ? WHERE id = ?`,
+                [newVersion, item.record_id]
+              );
+
+              // Mettre à jour les données dans sync_queue avec la nouvelle version
+              const updatedData = { ...localRecord, version: newVersion };
+              await db.execute(
+                `UPDATE sync_queue SET data = ?, status = 'pending', error_message = 'Conflict: client-wins - retrying with new version' WHERE id = ?`,
+                [JSON.stringify(updatedData), item.id]
+              );
+
+              console.log(`[SyncService] Item ${item.id} will retry with version ${newVersion}`);
+            }
+
             failedCount++;
           } else if (result && (result.status === 'created' || result.status === 'updated' || result.status === 'deleted' || result.status === 'conflict')) {
             await db.execute(
@@ -496,21 +864,23 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
             if (isNetworkError) {
               // Network/server error - increment retry_count and keep pending
               const newRetryCount = currentRetryCount + 1;
-              
+              const now = new Date().toISOString();
+              const backoffDelay = Math.pow(2, newRetryCount) * 1000;
+
               if (newRetryCount > 5) {
                 // Too many retries - mark as failed
                 await db.execute(
-                  `UPDATE sync_queue SET status = 'failed', error_message = ?, retry_count = ? WHERE id = ?`,
-                  [`Échecs répétés, vérification manuelle requise: ${errorMessage}`, newRetryCount, item.id]
+                  `UPDATE sync_queue SET status = 'failed', error_message = ?, retry_count = ?, last_retry_at = ? WHERE id = ?`,
+                  [`Échecs répétés (${newRetryCount} tentatives), vérification manuelle requise: ${errorMessage}`, newRetryCount, now, item.id]
                 );
                 console.warn(`[SyncService] Item ${item.id} exceeded max retries (5), marking as failed`);
               } else {
                 // Keep pending for retry, increment retry_count
                 await db.execute(
-                  `UPDATE sync_queue SET status = 'pending', error_message = ?, retry_count = ? WHERE id = ?`,
-                  [errorMessage, newRetryCount, item.id]
+                  `UPDATE sync_queue SET status = 'pending', error_message = ?, retry_count = ?, last_retry_at = ? WHERE id = ?`,
+                  [errorMessage, newRetryCount, now, item.id]
                 );
-                console.log(`[SyncService] Item ${item.id} will retry (attempt ${newRetryCount}/5)`);
+                console.log(`[SyncService] Item ${item.id} will retry (attempt ${newRetryCount}/5) after ${backoffDelay}ms`);
               }
             } else {
               // Validation error (4xx) - mark as failed immediately without retry
@@ -543,6 +913,27 @@ async function _pushChanges(): Promise<{ success: number; failed: number }> {
       }
 
       console.log(`[SyncService] Chunk completed: ${successCount} success, ${failedCount} failed`);
+
+      // Retry FK errors immediately after chunk processing
+      const fkErrors = chunk.items.filter((_, index) => {
+        const result = results[index];
+        return result?.error?.includes('FK_MISSING') ||
+               result?.error?.includes('Référence introuvable') ||
+               result?.code === 'FK_MISSING';
+      });
+
+      if (fkErrors.length > 0) {
+        console.log(`[SyncService] Found ${fkErrors.length} FK errors, queuing for immediate retry`);
+
+        const fkItems = fkErrors.map((item, index) => ({
+          item,
+          change: chunk.changes[chunk.items.indexOf(item)]
+        }));
+
+        const fkRetryResult = await retryFKErrors(fkItems, lastSyncAt, farmId, db);
+        totalSuccessCount += fkRetryResult.success;
+        totalFailedCount += fkRetryResult.failed;
+      }
     }
 
     return { success: totalSuccessCount, failed: totalFailedCount };

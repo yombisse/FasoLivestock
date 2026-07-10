@@ -20,6 +20,7 @@ import { createTransaction } from '../../../database/repositories/transactionRep
 import { createLocalRecord } from '../../../database/repositories/baseRepository';
 import { clearFarmCache } from '../../../database/repositories/cacheRepository';
 import transactionService from '../../../services/transaction.service';
+import { getLocalCategories } from '../../../database/repositories/categorieRepository';
 import { farmStorage } from '../../../storage/farmStorage';
 import { authStorage } from '../../../storage/authStorage';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -42,12 +43,17 @@ const AnimalVenteScreen = () => {
   const [dateTransaction, setDateTransaction] = useState<Date | undefined>(new Date());
   const [description, setDescription] = useState('');
   const [tiers, setTiers] = useState('');
+  const [categories, setCategories] = useState<any[]>([]);
 
   const loadActiveFarm = async () => {
     try {
       const farm = await farmStorage.getActiveFarm();
       if (farm) {
         setFarmId(farm.id);
+        // Load categories for this farm
+        const localCategories = await getLocalCategories();
+        const revenueCategories = localCategories.filter((cat: any) => cat.type === 'REVENU');
+        setCategories(revenueCategories);
       } else {
         setError('Aucune ferme active sélectionnée');
       }
@@ -98,6 +104,11 @@ const AnimalVenteScreen = () => {
       return;
     }
 
+    if (categories.length === 0) {
+      Alert.alert('Erreur', 'Aucune catégorie de revenu disponible. Veuillez synchroniser.');
+      return;
+    }
+
     // Check if animal is active
     if (animal && animal.statut !== 'ACTIF') {
       Alert.alert('Erreur', `Impossible de vendre cet animal (statut: ${animal.statut})`);
@@ -111,6 +122,9 @@ const AnimalVenteScreen = () => {
       const user = await authStorage.getUser();
       const userId = user?.id;
 
+      // Use the first revenue category (or could add a dropdown selection)
+      const categorieId = categories[0]?.id;
+
       const transactionData: CreateTransactionData = {
         farm_id: farmId,
         type_transaction: 'ENTREE',
@@ -120,6 +134,7 @@ const AnimalVenteScreen = () => {
         description: description || `Vente de ${animal?.nom || 'animal'}`,
         tiers: tiers || undefined,
         user_id: userId,
+        categorie_id: categorieId,
       };
 
       // Create locally - sync will handle server push via syncService
@@ -143,11 +158,7 @@ const AnimalVenteScreen = () => {
         categorie: 'MOUVEMENT',
         statut_avant: animal?.statut || 'ACTIF',
         statut_apres: 'VENDU',
-        sync_status: 'pending',
         last_modified_by: userId,
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       });
 
       // Update animal status locally (optimistic update)

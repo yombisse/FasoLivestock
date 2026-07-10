@@ -5,9 +5,11 @@ import { useNavigation } from '@react-navigation/native';
 import AppText from '../../components/AppText';
 import AppHeader from '../../components/AppHeader';
 import AppButton from '../../components/AppButton';
+import AppStatCard from '../../components/AppStatCard';
+import AppActionButton from '../../components/AppActionButton';
 import { farmStorage } from '../../storage/farmStorage';
 import { Farm } from '../../types/farm.types';
-import { getDashboard } from '../../services/dashboard.service';
+import { getDashboardStats } from '../../database/repositories/dashboardRepository';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -33,36 +35,18 @@ const HomeScreen = () => {
       setError(null);
 
       const farm = await farmStorage.getActiveFarm();
+      console.log('[HomeScreen] Active farm:', farm);
       if (!farm) {
         setError('Aucune ferme active sélectionnée');
         return;
       }
 
-      // Use local repositories for offline-first pattern
-      const { getLocalAnimals } = await import('../../database/repositories/animalRepository');
-      const { getDatabase } = await import('../../database/connection');
-      
-      const animals = await getLocalAnimals(farm.id);
-      const db = await getDatabase();
-      
-      // Get stats from local database
-      const totalAnimals = animals.length;
-      const activeAnimals = animals.filter((a: any) => a.statut === 'ACTIF').length;
-      
-      const result = await db.execute(
-        `SELECT COUNT(*) as count FROM evenements WHERE farm_id = ? AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const totalEvents = result?.rows?.item(0)?.count || 0;
-      
-      setDashboardData({
-        total_animaux: totalAnimals,
-        animaux_actifs: activeAnimals,
-        total_evenements: totalEvents,
-        animaux_males: animals.filter((a: any) => a.sexe === 'male').length,
-        animaux_femelles: animals.filter((a: any) => a.sexe === 'femelle').length,
-      });
+      // Use dashboard repository for stats
+      const dashboardStats = await getDashboardStats(farm.id);
+      console.log('[HomeScreen] Dashboard stats:', dashboardStats);
+      setDashboardData(dashboardStats);
     } catch (err: any) {
+      console.error('[HomeScreen] Error loading dashboard:', err);
       setError(err.message || 'Erreur lors du chargement du tableau de bord');
     } finally {
       setLoading(false);
@@ -121,18 +105,94 @@ const HomeScreen = () => {
               )}
 
               <View style={styles.statsContainer}>
-                <View style={styles.statCard}>
-                  <AppText style={styles.statNumber}>{dashboardData.cheptel?.total || 0}</AppText>
-                  <AppText style={styles.statLabel}>Animaux</AppText>
-                </View>
-                <View style={styles.statCard}>
-                  <AppText style={styles.statNumber}>{dashboardData.global?.active_farms || 0}</AppText>
-                  <AppText style={styles.statLabel}>Élevages</AppText>
-                </View>
-                <View style={styles.statCard}>
-                  <AppText style={styles.statNumber}>{dashboardData.alertes?.count || 0}</AppText>
-                  <AppText style={styles.statLabel}>Alertes</AppText>
-                </View>
+                <AppStatCard
+                  icon="cow"
+                  iconColor="#2E7D32"
+                  value={dashboardData.total_animaux || 0}
+                  label="Animaux"
+                />
+                <AppStatCard
+                  icon="check-circle"
+                  iconColor="#1976D2"
+                  value={dashboardData.animaux_actifs || 0}
+                  label="Actifs"
+                />
+                <AppStatCard
+                  icon="calendar-clock"
+                  iconColor="#F57C00"
+                  value={dashboardData.total_evenements || 0}
+                  label="Événements"
+                />
+              </View>
+              
+              <View style={styles.statsContainer}>
+                <AppStatCard
+                  icon="gender-male"
+                  iconColor="#1976D2"
+                  value={dashboardData.animaux_males || 0}
+                  label="Mâles"
+                />
+                <AppStatCard
+                  icon="gender-female"
+                  iconColor="#E91E63"
+                  value={dashboardData.animaux_femelles || 0}
+                  label="Femelles"
+                />
+              </View>
+
+              <AppText style={styles.sectionTitle} fontWeight="bold">Actions rapides</AppText>
+              <View style={styles.actionsContainer}>
+                <AppActionButton
+                  icon="cow"
+                  iconColor="#2E7D32"
+                  label="Cheptel"
+                  onPress={() => (navigation as any).reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' as never, params: { screen: 'Cheptel' as never } as never }],
+                  })}
+                />
+                <AppActionButton
+                  icon="plus-circle"
+                  iconColor="#1976D2"
+                  label="Ajouter"
+                  onPress={() => (navigation as any).reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' as never, params: { screen: 'Cheptel' as never, params: { screen: 'AnimalForm' as never } as never } as never }],
+                  })}
+                />
+                <AppActionButton
+                  icon="medical-bag"
+                  iconColor="#F57C00"
+                  label="Santé"
+                  onPress={() => (navigation as any).reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' as never, params: { screen: 'Sante' as never } as never }],
+                  })}
+                />
+                <AppActionButton
+                  icon="heart-pulse"
+                  iconColor="#E91E63"
+                  label="Reproduction"
+                  onPress={() => (navigation as any).reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' as never, params: { screen: 'Reproduction' as never } as never }],
+                  })}
+                />
+                <AppActionButton
+                  icon="cash"
+                  iconColor="#9C27B0"
+                  label="Transactions"
+                  onPress={() => (navigation as any).reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' as never, params: { screen: 'Finance' as never } as never }],
+                  })}
+                />
+                <AppActionButton
+                  icon="cog"
+                  iconColor="#757575"
+                  label="Paramètres"
+                  onPress={() => (navigation as any).openDrawer()}
+                />
               </View>
             </>
           ) : null}
@@ -195,25 +255,19 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    color: '#212121',
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: 24,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2E7D32',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#757575',
   },
 });
 
