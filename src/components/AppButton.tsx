@@ -1,5 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { Theme } from '../config/colors';
 
 interface AppButtonProps {
   onPress: () => void;
@@ -28,13 +29,13 @@ const styles = StyleSheet.create({
     button:{
         width: '100%',
         height: 50,
-        backgroundColor: '#30A15E',
+        backgroundColor:Theme.primary,
         borderRadius: 25,
         justifyContent: 'center',
         alignItems: 'center',
     },
     buttonDisabled: {
-        backgroundColor: '#cccccc',
+        backgroundColor: Theme.textSecondary,
     },
     text:{
         color: 'white',

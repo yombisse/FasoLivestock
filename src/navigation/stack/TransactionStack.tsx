@@ -4,7 +4,7 @@ import TransactionListScreen from '../../screens/main/transactions/TransactionLi
 import TransactionDetailScreen from '../../screens/main/transactions/TransactionDetailScreen';
 import TransactionFormScreen from '../../screens/main/transactions/TransactionFormScreen';
 import TransactionAnimalSelectionScreen from '../../screens/main/transactions/TransactionAnimalSelectionScreen';
-import AnimalVenteScreen from '../../screens/main/transactions/AnimalVenteScreen';
+import AnimalVenteScreen from '../../screens/main/cheptel/AnimalVenteScreen';
 import AnimalAchatScreen from '../../screens/main/transactions/AnimalAchatScreen';
 
 export type TransactionStackParamList = {

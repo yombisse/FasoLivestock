@@ -3,7 +3,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import CheptelListScreen from '../../screens/main/cheptel/CheptelListScreen';
 import AnimalDetailScreen from '../../screens/main/cheptel/AnimalDetailScreen';
 import AnimalFormScreen from '../../screens/main/cheptel/AnimalFormScreen';
-import AnimalAchatScreen from '../../screens/main/cheptel/AnimalAchatScreen';
+import AnimalAchatScreen from '../../screens/main/transactions/AnimalAchatScreen';
 import AnimalNaissanceScreen from '../../screens/main/cheptel/AnimalNaissanceScreen';
 import AnimalVenteScreen from '../../screens/main/cheptel/AnimalVenteScreen';
 import AnimalTransfertScreen from '../../screens/main/cheptel/AnimalTransfertScreen';
@@ -14,10 +14,11 @@ import AnimalHistoriqueScreen from '../../screens/main/cheptel/AnimalHistoriqueS
 import AnimalSanteHistoriqueScreen from '../../screens/main/cheptel/AnimalSanteHistoriqueScreen';
 import AnimalReproductionHistoriqueScreen from '../../screens/main/cheptel/AnimalReproductionHistoriqueScreen';
 import AnimalTransactionHistoriqueScreen from '../../screens/main/cheptel/AnimalTransactionHistoriqueScreen';
+import AnimalHistoryScreen from '../../screens/main/cheptel/AnimalHistoryScreen';
 
 export type CheptelStackParamList = {
   CheptelList: undefined;
-  AnimalDetail: { animalId: string };
+  AnimalDetail: { animalId: string; readOnly?: boolean };
   AnimalForm: { animalId?: string };
   AnimalAchat: { categorieId?: string };
   AnimalNaissance: { motherId?: string; motherName?: string } | undefined;
@@ -30,6 +31,7 @@ export type CheptelStackParamList = {
   AnimalSanteHistorique: { animalId: string };
   AnimalReproductionHistorique: { animalId: string };
   AnimalTransactionHistorique: { animalId: string };
+  AnimalHistory: undefined;
 };
 
 const Stack = createStackNavigator<CheptelStackParamList>();
@@ -55,6 +57,7 @@ const CheptelStack = () => {
       <Stack.Screen name="AnimalSanteHistorique" component={AnimalSanteHistoriqueScreen} />
       <Stack.Screen name="AnimalReproductionHistorique" component={AnimalReproductionHistoriqueScreen} />
       <Stack.Screen name="AnimalTransactionHistorique" component={AnimalTransactionHistoriqueScreen} />
+      <Stack.Screen name="AnimalHistory" component={AnimalHistoryScreen} />
     </Stack.Navigator>
   );
 };

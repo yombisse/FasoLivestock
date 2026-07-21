@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -15,14 +16,20 @@ import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import AppTextInput from '../../../components/AppTextInput';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
-import AppFarmPicker, { AppFarmPickerRef } from '../../../components/AppFarmPicker';
+import AnimalPicker, { AnimalPickerRef } from '../../../components/AnimalPicker';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import mouvementService from '../../../services/mouvement.service';
 import { authStorage } from '../../../storage/authStorage';
+import { farmStorage } from '../../../storage/farmStorage';
 import { NaissanceRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { createNaissance } from '../../../database/repositories/naissanceRepository';
+import { useEligibleFemales } from '../../../hooks/useEligibleFemales';
+import { Theme } from '../../../config/colors';
+import { useEspeces } from '../../../hooks/useEspeces';
+import database from '../../../database/watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 
 type AnimalNaissanceRouteProp = RouteProp<CheptelStackParamList, 'AnimalNaissance'>;
 type AnimalNaissanceNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalNaissance'>;
@@ -30,6 +37,7 @@ type AnimalNaissanceNavigationProp = StackNavigationProp<CheptelStackParamList, 
 interface NewbornDraft {
   id: number;
   nom: string;
+  numero_identification: string;
   sexe: 'male' | 'femelle' | '';
   poids: string;
 }
@@ -37,6 +45,7 @@ interface NewbornDraft {
 const createBlankNewborn = (id: number): NewbornDraft => ({
   id,
   nom: '',
+  numero_identification: '',
   sexe: '',
   poids: '',
 });
@@ -44,19 +53,15 @@ const createBlankNewborn = (id: number): NewbornDraft => ({
 const AnimalNaissanceScreen = () => {
   const navigation = useNavigation<AnimalNaissanceNavigationProp>();
   const route = useRoute<AnimalNaissanceRouteProp>();
+  const motherPickerRef = useRef<AnimalPickerRef>(null);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
-  const [loadingFemales, setLoadingFemales] = useState<boolean>(false);
-  const [females, setFemales] = useState<Animal[]>([]);
   const [selectedMother, setSelectedMother] = useState<Animal | null>(null);
   const [dateNaissance, setDateNaissance] = useState<Date | undefined>(undefined);
-  const [dateSaillie, setDateSaillie] = useState<Date | undefined>(undefined);
-  const [dateMiseBasPrevue, setDateMiseBasPrevue] = useState<Date | undefined>(undefined);
   const [newborns, setNewborns] = useState<NewbornDraft[]>([createBlankNewborn(1)]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const motherPickerRef = useRef<AppFarmPickerRef>(null);
 
   const [formData, setFormData] = useState({
     nombrePetits: '1',
@@ -65,13 +70,18 @@ const AnimalNaissanceScreen = () => {
     creerPetits: true,
   });
 
+  // Load especes from WatermelonDB
+  const { especes, loading: loadingEspeces } = useEspeces();
+
+  // Load eligible females (with gestation EN_COURS) for mother selection
+  const { eligibleFemales, loading: loadingFemales } = useEligibleFemales(farmId || '');
+
   const formatDate = (value?: Date) => value ? value.toISOString().split('T')[0] : undefined;
 
   const loadActiveFarm = async () => {
     try {
-      const activeFarm = await authStorage.getItem('active_farm');
-      if (activeFarm) {
-        const farm = JSON.parse(activeFarm);
+      const farm = await farmStorage.getActiveFarm();
+      if (farm) {
         setFarmId(farm.id);
       }
     } catch (error) {
@@ -79,39 +89,19 @@ const AnimalNaissanceScreen = () => {
     }
   };
 
-  const loadFemellesEligibles = async () => {
-    if (!farmId) return;
-    try {
-      setLoadingFemales(true);
-      // Use local repository for offline-first pattern
-      const { getLocalAnimals } = await import('../../../database/repositories/animalRepository');
-      const data = await getLocalAnimals(farmId);
-      const females = data.filter((a: any) => a.sexe === 'femelle' && a.statut === 'ACTIF');
-      setFemales(females);
-      if (route.params?.motherId) {
-        const existing = females.find((female: Animal) => female.id === route.params?.motherId);
-        if (existing) {
-          setSelectedMother(existing);
-        }
-      }
-    } catch (error: any) {
-      console.error('Error loading females:', error);
-      setFemales([]);
-      setSelectedMother(null);
-    } finally {
-      setLoadingFemales(false);
-    }
-  };
-
   useEffect(() => {
     loadActiveFarm();
   }, []);
 
+  // Set selected mother from route params when eligible females are loaded
   useEffect(() => {
-    if (farmId) {
-      loadFemellesEligibles();
+    if (route.params?.motherId && eligibleFemales.length > 0) {
+      const existing = eligibleFemales.find((female: Animal) => female.id === route.params?.motherId);
+      if (existing) {
+        setSelectedMother(existing);
+      }
     }
-  }, [farmId]);
+  }, [route.params?.motherId, eligibleFemales]);
 
   useEffect(() => {
     if (route.params?.motherId && !selectedMother) {
@@ -149,6 +139,9 @@ const AnimalNaissanceScreen = () => {
     if (!count || count < 1) errors.nombrePetits = 'Nombre de petits requis';
 
     newborns.forEach((newborn, index) => {
+      if (!newborn.numero_identification.trim()) {
+        errors[`newborn_${index}_numero_identification`] = 'Numéro d\'identification requis';
+      }
       if (!newborn.sexe) {
         errors[`newborn_${index}_sexe`] = 'Sexe requis';
       }
@@ -180,8 +173,7 @@ const AnimalNaissanceScreen = () => {
         .map((item, index) => `${item.nom.trim() || `Petit ${index + 1}`} • ${item.sexe === 'male' ? 'mâle' : 'femelle'} • ${item.poids} kg`)
         .join(' | ');
 
-      // Create in local database (adds to sync queue)
-      // UUID will be auto-generated by createLocalRecord via generateUUID()
+      // Create naissance record
       const createdNaissance = await createNaissance({
         farm_id: farmId,
         mother_id: selectedMother.id,
@@ -189,10 +181,39 @@ const AnimalNaissanceScreen = () => {
         nombre_petits: Number(formData.nombrePetits),
         poids_naissance: Number(averageWeight.toFixed(2)),
         observation: formData.observation || observation,
-        date_saillie: formatDate(dateSaillie),
       });
 
       console.log('[AnimalNaissanceScreen] Created naissance locally:', createdNaissance.id);
+
+      // Create animal records for each newborn if checkbox is checked
+      if (formData.creerPetits) {
+        await database.write(async () => {
+          for (const newborn of newborns) {
+            const animalCollection = database.get('animals');
+            await animalCollection.create((animal: any) => {
+              animal.numero_identification = newborn.numero_identification;
+              animal.sexe = newborn.sexe;
+              animal.statut = 'SAIN';
+              animal.date_naissance = formatDate(dateNaissance);
+              animal.poids = Number(newborn.poids);
+              animal.farm_id = farmId;
+              animal.espece_id = (selectedMother as any).espece_id;
+              animal.categorie_id = (selectedMother as any).categorie_id;
+              animal.lot_id = (selectedMother as any).lot_id;
+              animal.mother_id = selectedMother.id;
+              animal.nom = newborn.nom || `Petit ${newborn.numero_identification}`;
+              animal.naissance_id = createdNaissance.id;
+              animal.origine = 'naissance';
+              animal.sync_status = 'pending';
+              animal.version = 1;
+              animal.created_at = Date.now();
+              animal.updated_at = Date.now();
+            });
+            console.log('[AnimalNaissanceScreen] Created animal for newborn:', newborn.numero_identification);
+          }
+        });
+      }
+
       navigation.goBack();
     } catch (err: any) {
       setSubmitError(err.message || 'Erreur lors de l\'enregistrement');
@@ -204,9 +225,11 @@ const AnimalNaissanceScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <AppHeader
+        showBackground={false}
         title="Déclarer une naissance"
         showBackButton
         onBackPress={() => navigation.goBack()}
+        style={styles.header}
       />
 
       <KeyboardAvoidingView
@@ -222,20 +245,16 @@ const AnimalNaissanceScreen = () => {
 
           <View style={styles.contextCard}>
             <AppText style={styles.contextTitle}>Femelle sélectionnée</AppText>
-            <TouchableOpacity
-              style={styles.selectButton}
+            <TouchableOpacity 
               onPress={() => motherPickerRef.current?.present()}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
+              style={styles.input}
             >
-              <View style={styles.selectButtonContent}>
-                <AppText style={styles.selectButtonLabel}>
-                  {selectedMother ? `${selectedMother.nom}${selectedMother.numero_identification ? ` • ${selectedMother.numero_identification}` : ''}` : 'Sélectionner une femelle éligible'}
-                </AppText>
-                <MaterialCommunityIcons name="chevron-down" size={20} color="#30A15E" />
-              </View>
+              <AppText style={selectedMother ? styles.inputText : styles.inputPlaceholder}>
+                {selectedMother?.nom || 'Sélectionner une femelle'}
+              </AppText>
             </TouchableOpacity>
             {fieldErrors.mother_id ? <AppText style={styles.errorText}>{fieldErrors.mother_id}</AppText> : null}
-            {loadingFemales ? <AppText style={styles.helperText}>Chargement des femelles éligibles…</AppText> : null}
           </View>
 
           <View style={styles.fieldContainer}>
@@ -261,24 +280,6 @@ const AnimalNaissanceScreen = () => {
           </View>
 
           <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Date de saillie</AppText>
-            <AppDateTimePicker
-              value={dateSaillie}
-              onChange={setDateSaillie}
-              placeholder="Sélectionner la date"
-            />
-          </View>
-
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Date de mise bas prévue</AppText>
-            <AppDateTimePicker
-              value={dateMiseBasPrevue}
-              onChange={setDateMiseBasPrevue}
-              placeholder="Sélectionner la date"
-            />
-          </View>
-
-          <View style={styles.fieldContainer}>
             <AppText style={styles.label}>Observation</AppText>
             <AppTextInput
               style={[styles.input, styles.multilineInput]}
@@ -294,6 +295,13 @@ const AnimalNaissanceScreen = () => {
             {newborns.map((newborn, index) => (
               <View key={newborn.id} style={styles.newbornCard}>
                 <AppText style={styles.newbornTitle}>Petit {index + 1}</AppText>
+                <AppTextInput
+                  style={styles.input}
+                  value={newborn.numero_identification}
+                  onChangeText={(text) => updateNewborn(index, 'numero_identification', text)}
+                  placeholder="Numéro d'identification *"
+                />
+                {fieldErrors[`newborn_${index}_numero_identification`] ? <AppText style={styles.errorText}>{fieldErrors[`newborn_${index}_numero_identification`]}</AppText> : null}
                 <AppTextInput
                   style={styles.input}
                   value={newborn.nom}
@@ -352,15 +360,13 @@ const AnimalNaissanceScreen = () => {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <AppFarmPicker
+      {/* AnimalPicker */}
+      <AnimalPicker
         ref={motherPickerRef}
-        title="Femelles éligibles à une naissance"
-        searchPlaceholder="Rechercher une femelle..."
-        emptyMessage="Aucune femelle éligible. Enregistrez d'abord une gestation confirmée."
-        items={females}
-        loading={loadingFemales}
-        getItemLabel={(item) => `${item.nom}${item.numero_identification ? ` • ${item.numero_identification}` : ''}`}
-        onSelect={(female) => setSelectedMother(female)}
+        animals={eligibleFemales}
+        title="Sélectionner une femelle (gestation en cours)"
+        onSelect={(animal) => setSelectedMother(animal)}
+        selectedId={selectedMother?.id}
       />
     </SafeAreaView>
   );
@@ -369,7 +375,10 @@ const AnimalNaissanceScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: Theme.backgroundLight,
+  },
+  header: {
+    backgroundColor: Theme.primary,
   },
   keyboardView: {
     flex: 1,
@@ -382,109 +391,114 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   contextCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: Theme.white,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   contextTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 8,
-    color: '#212121',
-  },
-  selectButton: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: '#FAFAFA',
-  },
-  selectButtonContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  selectButtonLabel: {
-    color: '#212121',
-    flex: 1,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: Theme.textPrimary,
   },
   fieldContainer: {
     marginBottom: 16,
+  },
+  input: {
+    backgroundColor: Theme.inputBackground,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  inputText: {
+    fontSize: 16,
+    color: Theme.textPrimary,
+  },
+  inputPlaceholder: {
+    fontSize: 16,
+    color: Theme.textSecondary,
   },
   label: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#212121',
+    color: Theme.textPrimary,
   },
   helperText: {
-    color: '#757575',
+    color: Theme.textSecondary,
     fontSize: 12,
     marginTop: 6,
-  },
-  input: {
-    backgroundColor: '#FFFFFF',
   },
   multilineInput: {
     minHeight: 88,
     textAlignVertical: 'top',
   },
   newbornCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    backgroundColor: Theme.white,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   newbornTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-    color: '#212121',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: Theme.textPrimary,
   },
   rowInputs: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
+    gap: 12,
+    marginTop: 12,
   },
   halfField: {
     flex: 1,
   },
   inlineLabel: {
-    fontSize: 13,
+    fontSize: 14,
     marginBottom: 6,
-    color: '#616161',
+    color: Theme.textSecondary,
   },
   sexeContainer: {
     flexDirection: 'row',
     gap: 8,
   },
   sexeOption: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FAFAFA',
+    backgroundColor: Theme.inputBackground,
   },
   sexeOptionSelected: {
-    backgroundColor: '#30A15E',
-    borderColor: '#30A15E',
+    backgroundColor: Theme.primary,
+    borderColor: Theme.primary,
   },
   sexeOptionText: {
-    color: '#212121',
+    color: Theme.textPrimary,
     fontSize: 14,
+    fontWeight: '500',
   },
   sexeOptionTextSelected: {
     color: '#FFFFFF',
     fontSize: 14,
+    fontWeight: '500',
   },
   checkboxRow: {
     flexDirection: 'row',
@@ -494,7 +508,7 @@ const styles = StyleSheet.create({
   },
   checkboxText: {
     marginLeft: 8,
-    color: '#212121',
+    color: Theme.textPrimary,
   },
   errorText: {
     color: '#D32F2F',

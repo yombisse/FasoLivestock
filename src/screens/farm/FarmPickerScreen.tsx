@@ -17,9 +17,10 @@ import farmService from '../../services/farm.service';
 import { farmStorage } from '../../storage/farmStorage';
 import { authStorage } from '../../storage/authStorage';
 import { Farm } from '../../types/farm.types';
-import { fullSync, initialSync } from '../../sync/syncService';
-import { getFarms } from '../../database/repositories/farmRepository';
-import { syncEvents } from '../../sync/syncEvents';
+import { syncWatermelon } from '../../sync/watermelonSync';
+import syncService from '../../services/sync.service';
+import database from '../../database/watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 import NetInfo from '@react-native-community/netinfo';
 
 const FarmPickerScreen = () => {
@@ -55,43 +56,77 @@ const FarmPickerScreen = () => {
       const netInfo = await NetInfo.fetch();
       setIsOnline(netInfo.isConnected ?? false);
 
-      // Try local storage first (offline-first)
-      const localFarms = await getFarms();
-      console.log(`[FarmPickerScreen] DEBUG: Local storage returned ${localFarms.length} farms`);
-
-      if (localFarms.length > 0) {
-        // Use local data immediately
-        setFarms(localFarms);
-        console.log(`[FarmPickerScreen] DEBUG: Using local data - setFarms called with ${localFarms.length} farms`);
-        
-        // Trigger initialSync in background if online (non-blocking)
-        if (netInfo.isConnected) {
-          console.log('[FarmPickerScreen] DEBUG: Triggering background initial sync');
-          initialSync().catch(err => {
-            console.warn('[FarmPickerScreen] Background initial sync failed:', err);
-          });
-        }
-      } else if (netInfo.isConnected) {
-        // No local data and online: trigger initial sync
-        console.log('[FarmPickerScreen] DEBUG: No local data, triggering initial sync');
+      // Always use initial sync when online to get correct farm IDs from API
+      if (netInfo.isConnected) {
+        console.log('[FarmPickerScreen] DEBUG: Online, triggering initial sync for fresh farm IDs');
         try {
-          await initialSync();
+          setSyncing(true);
+          const initialSyncResponse = await syncService.initialSync();
+          console.log(`[FarmPickerScreen] DEBUG: Initial sync returned ${initialSyncResponse.data.data.farms.length} farms`);
           
-          // After initial sync, try loading farms again
-          const syncedFarms = await getFarms();
-          setFarms(syncedFarms);
-          console.log(`[FarmPickerScreen] DEBUG: After initial sync - setFarms called with ${syncedFarms.length} farms`);
+          const apiFarms = initialSyncResponse.data.data.farms;
           
-          if (syncedFarms.length === 0) {
-            setError('Aucune ferme disponible après synchronisation. Contactez votre administrateur.');
+          if (apiFarms.length === 0) {
+            setError('Aucune ferme disponible. Contactez votre administrateur.');
+          } else {
+            setFarms(apiFarms);
+            await loadActiveFarm();
           }
         } catch (syncError: any) {
           console.error('[FarmPickerScreen] Initial sync failed:', syncError);
-          setError('Échec de la synchronisation initiale. Vérifiez votre connexion et réessayez.');
+          
+          // Check if it's a schema migration error (missing api_id column)
+          if (syncError.message && syncError.message.includes('SCHEMA_MIGRATION_REQUIRED')) {
+            console.log('[FarmPickerScreen] Schema migration error detected, forcing database reset');
+            try {
+              await database.unsafeResetDatabase();
+              console.log('[FarmPickerScreen] Database reset completed, retrying initial sync');
+              
+              // Retry initial sync after reset
+              const syncResponse = await syncService.initialSync();
+              const apiFarms = syncResponse.data.data.data.farms;
+              
+              if (apiFarms.length === 0) {
+                setError('Aucune ferme disponible. Contactez votre administrateur.');
+              } else {
+                setFarms(apiFarms);
+                await loadActiveFarm();
+              }
+            } catch (retryError: any) {
+              console.error('[FarmPickerScreen] Retry after database reset failed:', retryError);
+              setError('Échec de la synchronisation après réinitialisation. Veuillez réinstaller l\'application.');
+            }
+          } else {
+            setError('Échec de la synchronisation initiale. Vérifiez votre connexion et réessayez.');
+          }
+        } finally {
+          setSyncing(false);
         }
       } else {
-        // No local data and offline
-        setError('Aucune ferme stockée localement. Connexion requise pour la première synchronisation.');
+        // Offline: use local WatermelonDB
+        const localFarms = await database.get('farms').query().fetch();
+        console.log(`[FarmPickerScreen] DEBUG: Offline, using local WatermelonDB with ${localFarms.length} farms`);
+
+        if (localFarms.length > 0) {
+          const farmsData = localFarms.map((farm: any) => ({
+            id: farm.api_id, // Use api_id for API compatibility
+            name: farm.name,
+            location: farm.location,
+            description: farm.description,
+            type_elevage: farm.type_elevage,
+            photo: farm.photo,
+            owner_id: farm.owner_id,
+            status: farm.status,
+            last_sync_at: farm.lastSyncAt?.toISOString(),
+            created_at: farm.createdAt?.toISOString(),
+            updated_at: farm.updatedAt?.toISOString(),
+          }));
+          
+          setFarms(farmsData);
+          await loadActiveFarm();
+        } else {
+          setError('Aucune ferme stockée localement. Connexion requise pour la première synchronisation.');
+        }
       }
     } catch (err: any) {
       console.error('Error loading farms:', err);
@@ -117,7 +152,17 @@ const FarmPickerScreen = () => {
     try {
       const activeFarm = await farmStorage.getActiveFarm();
       if (activeFarm) {
-        setActiveFarmId(activeFarm.id);
+        console.log('[FarmPickerScreen] Active farm from storage:', activeFarm.id, activeFarm.name);
+        
+        // Check if this farm still exists in the available farms list
+        const availableFarmIds = farms.map(f => f.id);
+        if (!availableFarmIds.includes(activeFarm.id)) {
+          console.warn('[FarmPickerScreen] Active farm ID not in available farms, removing it');
+          await farmStorage.removeActiveFarm();
+          setActiveFarmId(null);
+        } else {
+          setActiveFarmId(activeFarm.id);
+        }
       }
     } catch (error) {
       console.error('Error loading active farm:', error);
@@ -126,8 +171,26 @@ const FarmPickerScreen = () => {
 
   const handleFarmSelect = async (farm: Farm) => {
     try {
+      console.log('[FarmPickerScreen] Selected farm:', farm);
+      console.log('[FarmPickerScreen] Farm ID:', farm.id);
+      console.log('[FarmPickerScreen] Farm name:', farm.name);
+      
+      // Check if this farm ID exists in the available farms list
+      const availableFarmIds = farms.map(f => f.id);
+      console.log('[FarmPickerScreen] Available farm IDs:', availableFarmIds);
+      
+      if (!availableFarmIds.includes(farm.id)) {
+        console.error('[FarmPickerScreen] ERROR: Selected farm ID not in available farms list!');
+        throw new Error('La ferme sélectionnée n\'est pas disponible');
+      }
+      
       // Set active farm locally
       await farmStorage.setActiveFarm(farm);
+      
+      // Verify it was stored correctly
+      const storedFarm = await farmStorage.getActiveFarm();
+      console.log('[FarmPickerScreen] Stored farm ID:', storedFarm?.id);
+      console.log('[FarmPickerScreen] Stored farm name:', storedFarm?.name);
 
       // Navigate to main screen
       navigation.dispatch(
@@ -137,24 +200,11 @@ const FarmPickerScreen = () => {
         })
       );
 
-      // Trigger sync in background after navigation
-      setSyncing(true);
-      setError(null);
-
-      try {
-        console.log('[FarmPicker] Starting background sync for farm:', farm.id);
-        await fullSync(farm.id, true);
-        console.log('[FarmPicker] Background sync completed successfully');
-      } catch (syncError: any) {
-        console.error('[FarmPicker] Background sync failed:', syncError);
-        setError('Synchronisation en arrière-plan échouée. Les données seront synchronisées ultérieurement.');
-      } finally {
-        setSyncing(false);
-      }
+      // Note: Sync is handled automatically by MainTabs via useSync hook
+      // No manual sync needed here to avoid concurrent sync errors
     } catch (error) {
       console.error('Error selecting farm:', error);
       setError('Erreur lors de la sélection de la ferme');
-      setSyncing(false);
     }
   };
 
@@ -186,18 +236,7 @@ const FarmPickerScreen = () => {
     loadFarms();
   }, []);
 
-  // Subscribe to sync events to refresh data when sync completes
-  // Only subscribe to full sync events (background syncs), not initial sync
-  useEffect(() => {
-    const unsubscribeFull = syncEvents.subscribe('sync:full:completed', () => {
-      console.log('[FarmPickerScreen] Sync full completed event received, reloading farms');
-      loadFarms();
-    });
-
-    return () => {
-      unsubscribeFull();
-    };
-  }, []);
+  // WatermelonDB sync is automatic - no manual event subscription needed
 
   const renderFarmCard = (farm: Farm) => {
     const isActive = farm.id === activeFarmId;
@@ -263,9 +302,11 @@ const FarmPickerScreen = () => {
       <SafeAreaView style={styles.container}>
         <AppHeader
           title="Sélectionnez votre ferme"
-          showBackground={true}
+          showBackground={false}
           showLogoutButton={true}
           onLogoutPress={handleLogout}
+          style={styles.header}
+          titleStyle={styles.headerTitle}
         />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2E7D32" />
@@ -288,8 +329,10 @@ const FarmPickerScreen = () => {
         <AppHeader
           title="Synchronisation"
           subtitle="Récupération des données..."
-          showBackground={true}
+          showBackground={false}
           showLogoutButton={false}
+          style={styles.header}
+          titleStyle={styles.headerTitle}
         />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2E7D32" />
@@ -309,9 +352,11 @@ const FarmPickerScreen = () => {
       <SafeAreaView style={styles.container}>
         <AppHeader
           title="Sélectionnez votre ferme"
-          showBackground={true}
+          showBackground={false}
           showLogoutButton={true}
           onLogoutPress={handleLogout}
+          style={styles.header}
+          titleStyle={styles.headerTitle}
         />
         <View style={styles.errorContainer}>
           <MaterialCommunityIcons name="alert-circle" size={64} color="#D32F2F" />
@@ -341,9 +386,11 @@ const FarmPickerScreen = () => {
       <SafeAreaView style={styles.container}>
         <AppHeader
           title="Sélectionnez votre ferme"
-          showBackground={true}
+          showBackground={false}
           showLogoutButton={true}
           onLogoutPress={handleLogout}
+          style={styles.header}
+          titleStyle={styles.headerTitle}
         />
         <View style={styles.emptyContainer}>
           <MaterialCommunityIcons name="barn" size={64} color="#BDBDBD" />
@@ -373,9 +420,11 @@ const FarmPickerScreen = () => {
       <AppHeader
         title="Sélectionnez votre ferme"
         subtitle={userFullName ? `Bonjour ${userFullName}` : undefined}
-        showBackground={true}
+        showBackground={false}
         showLogoutButton={true}
         onLogoutPress={handleLogout}
+        style={styles.header}
+        titleStyle={styles.headerTitle}
       />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
@@ -402,6 +451,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#2E7D32',
+    height: 100,
+    paddingBottom: 12,
+  },
+  headerTitle: {
+    alignSelf: 'center',
   },
   content: {
     flex: 1,

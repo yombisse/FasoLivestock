@@ -15,6 +15,7 @@ import AppTextInput from '../../../components/AppTextInput';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import mouvementService from '../../../services/mouvement.service';
 import { authStorage } from '../../../storage/authStorage';
+import { farmStorage } from '../../../storage/farmStorage';
 import { ImportRequest } from '../../../types/mouvement.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { getLocalAnimalByNumeroIdentification } from '../../../database/repositories/animalRepository';
@@ -59,9 +60,8 @@ const AnimalImportScreen = () => {
   // Charger la ferme active
   const loadActiveFarm = async () => {
     try {
-      const activeFarm = await authStorage.getItem('active_farm');
-      if (activeFarm) {
-        const farm = JSON.parse(activeFarm);
+      const farm = await farmStorage.getActiveFarm();
+      if (farm) {
         setFarmId(farm.id);
       }
     } catch (error) {
@@ -162,7 +162,7 @@ const AnimalImportScreen = () => {
           numero_identification: animal.numero_identification || undefined,
           poids: animal.poids ? parseFloat(animal.poids) : undefined,
           date_naissance: animal.date_naissance || undefined,
-          statut: 'ACTIF',
+          statut: 'SAIN',
         });
       }
       
@@ -170,6 +170,7 @@ const AnimalImportScreen = () => {
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err: any) {
+      console.error('[AUDIT] Import - Error:', err);
       Alert.alert('Erreur', err.message || 'Erreur lors de l\'import');
     } finally {
       setSubmitting(false);

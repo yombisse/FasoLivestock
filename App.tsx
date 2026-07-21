@@ -7,13 +7,15 @@
 
 import { StatusBar, StyleSheet, View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect } from 'react';
 import AppNavigator from './src/navigation/stack/AppNavigator';
-import { initDatabase } from './src/database';
+import { initDatabase, cleanupDummyRecords } from './src/database';
 import { subscribeToNetworkChanges } from './src/utils/networkStatus';
-import { fullSync } from './src/sync/syncService';
+import { syncWatermelon } from './src/sync/watermelonSync';
 import { farmStorage } from './src/storage/farmStorage';
+import { Theme } from './src/config/colors';
+import CategorieMappingService from './src/services/categorieMappingService';
 
 function App() {
   const [dbInitialized, setDbInitialized] = useState(false);
@@ -21,8 +23,19 @@ function App() {
 
   useEffect(() => {
     initDatabase()
-      .then(() => {
+      .then(async () => {
         setDbInitialized(true);
+        // Clean up any dummy records that might cause sync errors
+        await cleanupDummyRecords();
+
+        // Initialize CategorieMappingService after database is ready
+        try {
+          await CategorieMappingService.initialize();
+          console.log('[App] CategorieMappingService initialized successfully');
+        } catch (error) {
+          console.error('[App] Failed to initialize CategorieMappingService:', error);
+          // Don't block app startup if mapping service fails
+        }
       })
       .catch((error) => {
         console.error('[App] Database initialization failed:', error);
@@ -31,6 +44,8 @@ function App() {
   }, []);
 
   // Automatic sync on network connection
+  // TEMPORARILY DISABLED - Backend not ready for WatermelonDB sync
+  /*
   useEffect(() => {
     if (!dbInitialized) return;
 
@@ -40,9 +55,9 @@ function App() {
           const farm = await farmStorage.getActiveFarm();
           if (farm) {
             console.log('[App] Network connected, starting auto-sync...');
-            await fullSync(farm.id);
+            await syncWatermelon(farm.id);
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('[App] Auto-sync failed:', error);
           // Don't show error to user - sync happens in background
         }
@@ -53,11 +68,12 @@ function App() {
       unsubscribe();
     };
   }, [dbInitialized]);
+  */
 
   if (dbError) {
     return (
       <View style={styles.errorContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <StatusBar backgroundColor={Theme.primary} barStyle="light-content" translucent={false} />
         <Text style={styles.errorText}>{dbError}</Text>
       </View>
     );
@@ -66,8 +82,8 @@ function App() {
   if (!dbInitialized) {
     return (
       <View style={styles.loadingContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <ActivityIndicator size="large" color="#2E7D32" />
+        <StatusBar backgroundColor={Theme.primary} barStyle="light-content" translucent={false} />
+        <ActivityIndicator size="large" color={Theme.primary} />
       </View>
     );
   }
@@ -75,7 +91,10 @@ function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <StatusBar backgroundColor={Theme.primary} barStyle="light-content" translucent={true} />
+        <View style={styles.statusBarBackground}>
+          <SafeAreaView style={{ backgroundColor: Theme.primary }} edges={['top']} />
+        </View>
         <AppNavigator />
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -108,20 +127,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Theme.primary,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Theme.primary,
     padding: 20,
   },
   errorText: {
     fontSize: 16,
-    color: '#D32F2F',
+    color: '#FFFFFF',
     textAlign: 'center',
     marginTop: 16,
+  },
+  statusBarBackground: {
+    backgroundColor: Theme.primary,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
   },
 });
 

@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'react-native-linear-gradient';
 import AppButton from '../../components/AppButton';
-import AppHeader from '../../components/AppHeader';
 import AppTextInput from '../../components/AppTextInput';
 import AppLink from '../../components/AppLink';
 import AppText from '../../components/AppText';
 import AppImage from '../../components/AppImage';
 import authService from '../../services/auth.service';
 import { authStorage } from '../../storage/authStorage';
+import { Theme } from '../../config/colors';
+import farmService from '../../services/farm.service';
+import { upsertFarms } from '../../database/repositories/farmRepository';
 
 const Login = ({navigation}: any) => {
   const [login, setLogin] = useState('');
@@ -52,7 +55,21 @@ const Login = ({navigation}: any) => {
         
         console.log('Login successful:', response.data);
 
-        // Navigate to farm picker - sync will handle data pull
+        // Charger les fermes du serveur
+        try {
+          const farms = await farmService.getFarms();
+          console.log(`[Login] Loaded ${farms.length} farms from server`);
+          
+          // Stocker les fermes dans WatermelonDB
+          await upsertFarms(farms);
+          console.log('[Login] Farms stored in WatermelonDB');
+        } catch (farmError: any) {
+          console.error('[Login] Error loading farms:', farmError);
+          // Continuer même si le chargement des fermes échoue
+          // FarmPicker essaiera de charger les fermes localement
+        }
+
+        // Navigate to farm picker
         navigation.reset({
           index: 0,
           routes: [{ name: 'FarmPicker' }],
@@ -67,17 +84,26 @@ const Login = ({navigation}: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
-        <AppHeader title="Connexion" subtitle="Accédez à votre espace personnel" />
-        <View style={styles.content}>
-          <View style={styles.scrollContent}>
-            <View style={styles.logoContainer}>
-              <AppImage 
-                source={require('../../assets/images/LogoFLS.png')} 
-                width={150} 
-                height={150} 
-              />
-            </View>
+      <LinearGradient
+        colors={[Theme.primary, Theme.primaryLight]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.headerContent}>
+          <View style={styles.logoSquare}>
+            <AppImage 
+              source={require('../../assets/images/LogoFLS.png')} 
+              width={80} 
+              height={80} 
+            />
           </View>
+          <AppText style={styles.appTitle}>FasoLivestock</AppText>
+          <AppText style={styles.appSubtitle}>Gestion intelligente de vos fermes</AppText>
+        </View>
+      </LinearGradient>
+      <View style={styles.content}>
+        <View style={styles.formCard}>
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             <View style={styles.form}>
               <AppTextInput
@@ -105,6 +131,7 @@ const Login = ({navigation}: any) => {
                 onPress={handleLogin} 
                 title={loading ? 'Connexion...' : 'Se connecter'}
                 disabled={loading}
+                style={styles.loginButton}
               />
               <View style={styles.registerContainer}>
                 <AppText style={styles.registerText}>Pas encore de compte? </AppText>
@@ -113,6 +140,7 @@ const Login = ({navigation}: any) => {
             </View>
           </ScrollView>
         </View>
+      </View>
     </SafeAreaView>
   );
 };
@@ -121,32 +149,61 @@ export default Login;
 const styles = StyleSheet.create({
   container: {  
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Theme.primary,
   },
   content: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
   },
-  scrollContent: {
-    alignItems: 'center',
+  headerGradient: {
+    paddingTop: 60,
+    paddingBottom: 40,
     paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
+  logoSquare: {
+    width: 100,
+    height: 100,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  formCard: {
+    flex: 1,
+    backgroundColor: Theme.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -20,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   scrollView: {
     flex: 1,
-    width: '100%',
-    paddingHorizontal: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 24,
   },
   form: {
     width: '100%',
     maxWidth: 400,
+    alignSelf: 'center',
   },
   forgotPasswordContainer: {
     alignItems: 'flex-end',
@@ -160,8 +217,9 @@ const styles = StyleSheet.create({
   registerText: {
     fontSize: 14,
   },
-  logoContainer: {
-    marginBottom: 20,
+  loginButton: {
+    borderRadius: 28,
+    marginTop: 8,
   },
   errorText: {
     color: '#ff4757',

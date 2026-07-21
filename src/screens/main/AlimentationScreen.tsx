@@ -28,9 +28,10 @@ const AlimentationScreen = () => {
     <SafeAreaView style={styles.container}>
       <AppHeader
         title="Alimentation"
-        showBackground={true}
-        showMenuButton={true}
+        showBackground={false}
+        showMenuButton
         onMenuPress={() => (navigation as any).openDrawer()}
+        style={styles.header}
       />
       <View style={styles.content}>
         <AppText style={styles.title} fontWeight="bold">
@@ -50,6 +51,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#2D6A4F',
   },
   content: {
     flex: 1,

@@ -14,7 +14,6 @@ import AppHeader from '../../../components/AppHeader';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Transaction } from '../../../types/transaction.types';
 import { getLocalTransactionById } from '../../../database/repositories/transactionRepository';
-import transactionService from '../../../services/transaction.service';
 
 type TransactionDetailRouteProp = RouteProp<{ TransactionDetail: { transactionId: string } }, 'TransactionDetail'>;
 type TransactionDetailNavigationProp = StackNavigationProp<any, 'TransactionDetail'>;

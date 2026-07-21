@@ -75,7 +75,7 @@ const reproductionService = {
     // Try local database first
     try {
       const localAnimals = await getLocalAnimals(farm.id);
-      const females = localAnimals.filter(a => a.sexe === 'femelle' && a.statut === 'ACTIF');
+      const females = localAnimals.filter(a => a.sexe === 'femelle' && !['MORT', 'VENDU', 'PERDU'].includes(a.statut || ''));
       if (females.length > 0) {
         console.log('[ReproductionService] Females from local database:', females.length);
         return females;

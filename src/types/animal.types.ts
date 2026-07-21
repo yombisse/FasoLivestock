@@ -27,7 +27,7 @@ export interface Animal {
   // Relations incluses
   farm?: { id: string; name: string };
   espece?: { id: string; nom: string };
-  lot?: { id: string; nom: string };
+  lot?: { id: string; nom_lot: string };
   mother?: { id: string; nom: string };
 }
 

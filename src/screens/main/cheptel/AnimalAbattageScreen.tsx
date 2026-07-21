@@ -12,12 +12,13 @@ import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import AppTextInput from '../../../components/AppTextInput';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
-import mouvementService from '../../../services/mouvement.service';
-import animalService from '../../../services/animal.service';
 import { farmStorage } from '../../../storage/farmStorage';
+import { authStorage } from '../../../storage/authStorage';
 import { AbattageRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import { getLocalAnimalById } from '../../../database/repositories/animalRepository';
+import { TypeEvenementIds } from '../../../constants/typeEvenements';
 
 type AnimalAbattageRouteProp = RouteProp<CheptelStackParamList, 'AnimalAbattage'>;
 type AnimalAbattageNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalAbattage'>;
@@ -53,7 +54,7 @@ const AnimalAbattageScreen = () => {
         if (!farm) {
           throw new Error('Aucune ferme active');
         }
-        const animal = await animalService.getAnimal(animalId);
+        const animal = await getLocalAnimalById(animalId);
         setAnimalContext(animal);
       } catch (error: any) {
         setSubmitError(error.message || 'Impossible de charger les détails de l’animal');
@@ -93,22 +94,34 @@ const AnimalAbattageScreen = () => {
 
       // Use local repository for offline-first pattern
       const { createLocalRecord } = await import('../../../database/repositories/baseRepository');
-      const { getTypeEvenementIdByName } = await import('../../../database/repositories/typeEvenementRepository');
-      
-      // Get the abattage type_evenement_id using the shared function
-      const typeEvenementId = await getTypeEvenementIdByName('Abattage');
-      if (!typeEvenementId) {
-        setSubmitError("Type d'événement Abattage introuvable en local. Synchronisation requise.");
-        return;
-      }
 
-      await createLocalRecord('evenements', {
+      // Get user ID from auth storage
+      const userId = await authStorage.getUserId();
+
+      // Use constant type_evenement_id for abattage
+      const typeEvenementId = TypeEvenementIds.ABATTAGE;
+
+      const createdEvent = await createLocalRecord('evenements', {
         farm_id: farm.id,
         animal_id: animalId,
         type_evenement_id: typeEvenementId,
         date_evenement: dateAbattage!.toISOString().split('T')[0],
         description: formData.motif || 'Abattage',
         categorie: 'SANITAIRE',
+        last_modified_by: userId,
+      });
+      
+      console.log('[AUDIT] Abattage - Evenement created:', {
+        local_id: (createdEvent as any).id,
+        farm_id: farm.id,
+        animal_id: animalId,
+        type_evenement_id: typeEvenementId,
+        categorie: 'SANITAIRE',
+        date_evenement: dateAbattage!.toISOString().split('T')[0],
+        motif: formData.motif,
+        _status: (createdEvent as any)._status,
+        sync_status: (createdEvent as any).sync_status,
+        version: (createdEvent as any).version,
       });
       
       navigation.goBack();

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import CustomDrawer from '../../components/CustomDrawer';
+import CustomDrawerContent from '../stack/drawer/CustomDrawerContent';
 import MainTabs from '../tabs/MainTabs';
 
 const Drawer = createDrawerNavigator();
@@ -8,7 +8,7 @@ const Drawer = createDrawerNavigator();
 const DrawerNavigator = () => {
   return (
     <Drawer.Navigator
-      drawerContent={(props) => <CustomDrawer {...props} />}
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
         headerShown: false,
         drawerStyle: {
@@ -16,8 +16,8 @@ const DrawerNavigator = () => {
         },
       }}
     >
-      <Drawer.Screen 
-        name="MainTabs" 
+      <Drawer.Screen
+        name="MainTabs"
         component={MainTabs}
         options={{ title: 'FasoLivestock' }}
       />

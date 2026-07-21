@@ -8,6 +8,8 @@ import AppButton from '../../components/AppButton';
 import AppImage from '../../components/AppImage';
 import { getDashboard } from '../../services/dashboard.service';
 import { farmStorage } from '../../storage/farmStorage';
+import database from '../../database/watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 
 const Dashboard = () => {
   const navigation = useNavigation();
@@ -33,52 +35,44 @@ const Dashboard = () => {
         return;
       }
 
-      // Use local repositories for offline-first pattern
-      const { getLocalAnimals } = await import('../../database/repositories/animalRepository');
-      const { getDatabase } = await import('../../database/connection');
+      // Use WatermelonDB for offline-first pattern
+      const animalsCollection = database.get('animals');
+      const evenementsCollection = database.get('evenements');
       
-      const db = await getDatabase();
-      
-      // Get active animals count directly from database (statut = 'ACTIF' AND deleted_at IS NULL)
-      const activeAnimalsResult = await db.execute(
-        `SELECT COUNT(*) as count FROM animals WHERE farm_id = ? AND statut = 'ACTIF' AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const activeAnimals = activeAnimalsResult?.rows?.[0]?.count || 0;
+      // Get active animals count (alive and present - exclude MORT, VENDU, PERDU)
+      const allAnimals = await animalsCollection
+        .query(Q.where('farm_id', farm.id))
+        .fetch();
+      const activeAnimals = allAnimals.filter((animal: any) => {
+        const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
+        return !excludedStatuses.includes(animal._raw.statut || '');
+      });
       
       // Get total animals count
-      const totalAnimalsResult = await db.execute(
-        `SELECT COUNT(*) as count FROM animals WHERE farm_id = ? AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const totalAnimals = totalAnimalsResult?.rows?.[0]?.count || 0;
+      const totalAnimals = await animalsCollection
+        .query(Q.where('farm_id', farm.id))
+        .fetch();
       
       // Get events count
-      const eventsResult = await db.execute(
-        `SELECT COUNT(*) as count FROM evenements WHERE farm_id = ? AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const totalEvents = eventsResult?.rows?.[0]?.count || 0;
+      const totalEvents = await evenementsCollection
+        .query(Q.where('farm_id', farm.id))
+        .fetch();
       
       // Get gender breakdown
-      const malesResult = await db.execute(
-        `SELECT COUNT(*) as count FROM animals WHERE farm_id = ? AND sexe = 'male' AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const malesCount = malesResult?.rows?.[0]?.count || 0;
+      const males = await animalsCollection
+        .query(Q.where('farm_id', farm.id), Q.where('sexe', 'male'))
+        .fetch();
       
-      const femalesResult = await db.execute(
-        `SELECT COUNT(*) as count FROM animals WHERE farm_id = ? AND sexe = 'femelle' AND deleted_at IS NULL`,
-        [farm.id]
-      );
-      const femalesCount = femalesResult?.rows?.[0]?.count || 0;
+      const females = await animalsCollection
+        .query(Q.where('farm_id', farm.id), Q.where('sexe', 'femelle'))
+        .fetch();
       
       setDashboardData({
-        total_animaux: totalAnimals,
-        animaux_actifs: activeAnimals,
-        total_evenements: totalEvents,
-        animaux_males: malesCount,
-        animaux_femelles: femalesCount,
+        total_animaux: totalAnimals.length,
+        animaux_actifs: activeAnimals.length,
+        total_evenements: totalEvents.length,
+        animaux_males: males.length,
+        animaux_femelles: females.length,
       });
     } catch (err: any) {
       setError(err.message || 'Erreur lors du chargement du tableau de bord');

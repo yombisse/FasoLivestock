@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackgroundImage from './AppBackgroundImage';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Theme } from '../config/colors';
 
 interface AppHeaderProps {
   title?: string;
@@ -15,10 +16,17 @@ interface AppHeaderProps {
   onMenuPress?: () => void;
   showLogoutButton?: boolean;
   onLogoutPress?: () => void;
+  showRightButton?: boolean;
+  rightButtonIcon?: string;
+  rightButtonIconSize?: number;
+  onRightButtonPress?: () => void;
+  showNotificationBadge?: boolean;
+  notificationCount?: number;
   style?: any;
   titleStyle?: any;
   subtitleStyle?: any;
   source?: any;
+  children?: React.ReactNode;
 }
 
 const AppHeader = ({
@@ -32,10 +40,17 @@ const AppHeader = ({
   onMenuPress,
   showLogoutButton = false,
   onLogoutPress,
+  showRightButton = false,
+  rightButtonIcon = 'bell-outline',
+  rightButtonIconSize = 22,
+  onRightButtonPress,
+  showNotificationBadge = false,
+  notificationCount = 0,
   style,
   titleStyle,
   subtitleStyle,
-  source
+  source,
+  children
 }: AppHeaderProps) => {
   return (
     <View style={[styles.container, { height }, style]}>
@@ -57,10 +72,32 @@ const AppHeader = ({
               <MaterialCommunityIcons name="logout" size={24} color="#D32F2F" />
             </TouchableOpacity>
           )}
-          <View style={styles.textContainer}>
-            {title && <Text style={[styles.text, titleStyle]}>{title}</Text>}
-            {subtitle && <Text style={[styles.subtitle, subtitleStyle]}>{subtitle}</Text>}
-          </View>
+          {showRightButton && (
+            <TouchableOpacity style={styles.rightButton} onPress={onRightButtonPress}>
+              <View style={styles.rightButtonCircle}>
+                <MaterialCommunityIcons 
+                  name={rightButtonIcon} 
+                  size={rightButtonIconSize} 
+                  color="#FFFFFF" 
+                />
+              </View>
+              {showNotificationBadge && notificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+          {children ? (
+            <View style={styles.childrenContainer}>{children}</View>
+          ) : (
+            <View style={styles.textContainer}>
+              {title && <Text style={[styles.text, titleStyle]}>{title}</Text>}
+              {subtitle && <Text style={[styles.subtitle, subtitleStyle]}>{subtitle}</Text>}
+            </View>
+          )}
         </AppBackgroundImage>
       ) : (
         <View style={[styles.textContainer, styles.solidBackground]}>
@@ -79,8 +116,32 @@ const AppHeader = ({
               <MaterialCommunityIcons name="logout" size={24} color="#D32F2F" />
             </TouchableOpacity>
           )}
-          {title && <Text style={[styles.text, titleStyle]}>{title}</Text>}
-          {subtitle && <Text style={[styles.subtitle, subtitleStyle]}>{subtitle}</Text>}
+          {showRightButton && (
+            <TouchableOpacity style={styles.rightButton} onPress={onRightButtonPress}>
+              <View style={styles.rightButtonCircle}>
+                <MaterialCommunityIcons 
+                  name={rightButtonIcon} 
+                  size={rightButtonIconSize} 
+                  color="#FFFFFF" 
+                />
+              </View>
+              {showNotificationBadge && notificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+          {children ? (
+            <View style={styles.childrenContainer}>{children}</View>
+          ) : (
+            <>
+              {title && <Text style={[styles.text, titleStyle]}>{title}</Text>}
+              {subtitle && <Text style={[styles.subtitle, subtitleStyle]}>{subtitle}</Text>}
+            </>
+          )}
         </View>
       )}
     </View>
@@ -92,8 +153,6 @@ const styles=StyleSheet.create({
   container:{
     width:'100%',
     height:180,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: {
@@ -143,7 +202,7 @@ const styles=StyleSheet.create({
     marginTop: 8,
   },
   solidBackground: {
-    backgroundColor: '#007AFF',
+    backgroundColor: Theme.primary,
   },
   menuButton: {
     position: 'absolute',
@@ -155,12 +214,51 @@ const styles=StyleSheet.create({
     position: 'absolute',
     left: 20,
     top: 50,
-    zIndex: 10,
+    zIndex: 100,
   },
   logoutButton: {
     position: 'absolute',
     right: 20,
     top: 50,
     zIndex: 10,
-  }
+  },
+  rightButton: {
+    position: 'absolute',
+    right: 20,
+    top: 50,
+    zIndex: 10,
+  },
+  rightButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#FF6B35',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#2D6A4F',
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  childrenContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 40,
+  },
 })

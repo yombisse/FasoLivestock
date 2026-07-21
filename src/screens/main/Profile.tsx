@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AppHeader from '../../components/AppHeader';
@@ -7,10 +7,12 @@ import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import AppImage from '../../components/AppImage';
 import { authStorage } from '../../storage/authStorage';
+import { clearLocalDatabase } from '../../database/watermelonIndex';
 
 const Profile = () => {
   const navigation = useNavigation();
   const [user, setUser] = React.useState<any>(null);
+  const [clearing, setClearing] = React.useState(false);
 
   React.useEffect(() => {
     loadUser();
@@ -23,10 +25,36 @@ const Profile = () => {
 
   const handleLogout = async () => {
     await authStorage.clearAuth();
-    navigation.reset({
+    (navigation as any).reset({
       index: 0,
       routes: [{ name: 'Auth' }],
     });
+  };
+
+  const handleClearDatabase = async () => {
+    Alert.alert(
+      'Nettoyer les données locales',
+      'Cette action va supprimer toutes les données locales (animaux, transactions, événements). Les données du serveur seront synchronisées à nouveau. Continuer?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Confirmer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setClearing(true);
+              await clearLocalDatabase();
+              Alert.alert('Succès', 'Données locales nettoyées avec succès');
+            } catch (error) {
+              console.error('[AUDIT] Profile - Clear database error:', error);
+              Alert.alert('Erreur', 'Impossible de nettoyer les données locales');
+            } finally {
+              setClearing(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -51,19 +79,38 @@ const Profile = () => {
           </View>
 
           <View style={styles.menuContainer}>
-            <View style={styles.menuItem}>
-              <AppText style={styles.menuItemText}>Informations personnelles</AppText>
-            </View>
-            <View style={styles.menuItem}>
-              <AppText style={styles.menuItemText}>Paramètres</AppText>
-            </View>
-            <View style={styles.menuItem}>
-              <AppText style={styles.menuItemText}>Notifications</AppText>
-            </View>
-            <View style={styles.menuItem}>
-              <AppText style={styles.menuItemText}>Aide</AppText>
-            </View>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Home' })}
+            >
+              <AppText style={styles.menuItemText}>Tableau de bord</AppText>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Cheptel' })}
+            >
+              <AppText style={styles.menuItemText}>Mon cheptel</AppText>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Finance' })}
+            >
+              <AppText style={styles.menuItemText}>Mes transactions</AppText>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Sante' })}
+            >
+              <AppText style={styles.menuItemText}>Santé animale</AppText>
+            </TouchableOpacity>
           </View>
+
+          <AppButton 
+            title="Nettoyer les données locales"
+            onPress={handleClearDatabase}
+            style={styles.clearButton}
+            disabled={clearing}
+          />
 
           <AppButton 
             title="Se déconnecter"
@@ -127,6 +174,10 @@ const styles = StyleSheet.create({
   menuItemText: {
     fontSize: 16,
     color: '#333',
+  },
+  clearButton: {
+    backgroundColor: '#F57C00',
+    marginBottom: 12,
   },
   logoutButton: {
     backgroundColor: '#D32F2F',

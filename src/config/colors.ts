@@ -1,114 +1,131 @@
 /**
  * Centralized color palette for status badges and UI elements
  * Ensures consistency across all screens and components
+ * 
+ * Design Tokens — FasoLivestock v2
  */
+
+export const Theme = {
+  // Primary colors (replaces hardcoded #2E7D32)
+  primary: '#1B4D3E',
+  primaryLight: '#2A6B54',
+  
+  // Backgrounds
+  backgroundLight: '#EEF3EF',
+  white: '#FFFFFF',
+  inputBackground: '#F5F7F5',
+  
+  // Text
+  textPrimary: '#1A1A1A',
+  textSecondary: '#6B7280',
+};
 
 export const StatusColors = {
   // Animal status colors
-  ACTIF: {
-    background: '#E8F5E9',
-    text: '#2E7D32',
+  SAIN: {
+    background: '#D1F2E1',
+    text: '#14804A',
   },
   VENDU: {
-    background: '#E3F2FD',
-    text: '#1565C0',
+    background: '#D1F2E1',
+    text: '#14804A',
   },
   DÉCÉDÉ: {
-    background: '#FFEBEE',
-    text: '#C62828',
+    background: '#FCE0E0',
+    text: '#C0392B',
   },
   DECÉDÉ: {
-    background: '#FFEBEE',
-    text: '#C62828',
+    background: '#FCE0E0',
+    text: '#C0392B',
   },
   MORT: {
-    background: '#FFEBEE',
-    text: '#C62828',
+    background: '#FCE0E0',
+    text: '#C0392B',
   },
   PERDU: {
-    background: '#FFF3E0',
-    text: '#F57C00',
+    background: '#FDEBD0',
+    text: '#B9770E',
   },
 
   // Transaction type colors
   ENTREE: {
-    background: '#E8F5E9',
-    text: '#2E7D32',
+    background: '#D1F2E1',
+    text: '#14804A',
   },
   SORTIE: {
-    background: '#FFEBEE',
-    text: '#D32F2F',
+    background: '#FCE0E0',
+    text: '#C0392B',
   },
   TRANSFERT: {
-    background: '#E3F2FD',
-    text: '#1976D2',
+    background: '#FDEBD0',
+    text: '#B9770E',
   },
   AJUSTEMENT: {
-    background: '#FFF3E0',
-    text: '#F57C00',
+    background: '#FDEBD0',
+    text: '#B9770E',
   },
 
   // Sync status colors
   SYNCED: {
-    background: '#E8F5E9',
-    text: '#2E7D32',
+    background: '#D1F2E1',
+    text: '#14804A',
   },
   PENDING: {
-    background: '#FFF3E0',
-    text: '#F57C00',
+    background: '#FDEBD0',
+    text: '#B9770E',
   },
   CONFLICT: {
-    background: '#FFEBEE',
-    text: '#D32F2F',
+    background: '#FCE0E0',
+    text: '#C0392B',
   },
 
   // Health event colors
   VACCINATION: {
-    background: '#E8F5E9',
-    text: '#2E7D32',
-    icon: '#2E7D32',
+    background: '#D1F2E1',
+    text: '#14804A',
+    icon: '#14804A',
   },
   TRAITEMENT: {
-    background: '#E3F2FD',
-    text: '#1976D2',
-    icon: '#1976D2',
+    background: '#FDEBD0',
+    text: '#B9770E',
+    icon: '#B9770E',
   },
   MALADIE: {
-    background: '#FFEBEE',
-    text: '#D32F2F',
-    icon: '#D32F2F',
+    background: '#FCE0E0',
+    text: '#C0392B',
+    icon: '#C0392B',
   },
   CONTROLE: {
-    background: '#FFF3E0',
-    text: '#F57C00',
-    icon: '#F57C00',
+    background: '#FDEBD0',
+    text: '#B9770E',
+    icon: '#B9770E',
   },
 
   // Reproduction event colors
   SAILLIE: {
     background: '#FCE4EC',
-    text: '#E91E63',
-    icon: '#E91E63',
+    text: '#C2185B',
+    icon: '#C2185B',
   },
   GESTATION: {
-    background: '#F3E5F5',
-    text: '#9C27B0',
-    icon: '#9C27B0',
+    background: '#EAE0F8',
+    text: '#6C3FA8',
+    icon: '#6C3FA8',
   },
   MISE_BAS: {
-    background: '#EDE7F6',
-    text: '#673AB7',
-    icon: '#673AB7',
+    background: '#D1F2E1',
+    text: '#14804A',
+    icon: '#14804A',
   },
   CHALEUR: {
-    background: '#FFF3E0',
-    text: '#F57C00',
-    icon: '#F57C00',
+    background: '#FDEBD0',
+    text: '#B9770E',
+    icon: '#B9770E',
   },
   INSPEMINATION: {
-    background: '#F3E5F5',
-    text: '#7B1FA2',
-    icon: '#7B1FA2',
+    background: '#EAE0F8',
+    text: '#6C3FA8',
+    icon: '#6C3FA8',
   },
 };
 
@@ -116,9 +133,9 @@ export const StatusColors = {
  * Get status colors for animal status
  */
 export const getAnimalStatusColor = (status?: string) => {
-  if (!status) return StatusColors.ACTIF;
+  if (!status) return StatusColors.SAIN;
   const normalizedStatus = status.toUpperCase();
-  return StatusColors[normalizedStatus as keyof typeof StatusColors] || StatusColors.ACTIF;
+  return StatusColors[normalizedStatus as keyof typeof StatusColors] || StatusColors.SAIN;
 };
 
 /**

@@ -72,8 +72,8 @@ export interface EvenementSanitaire {
   categorie: 'SANITAIRE';
   type: TypeEvenementSanitaire;
   metadonnees?: string; // JSON string in database
-  statut_avant?: 'ACTIF' | 'VENDU' | 'MORT' | 'PERDU';
-  statut_apres?: 'ACTIF' | 'VENDU' | 'MORT' | 'PERDU';
+  statut_avant?: 'SAIN' | 'VENDU' | 'MORT' | 'PERDU';
+  statut_apres?: 'SAIN' | 'VENDU' | 'MORT' | 'PERDU';
   transaction_id?: string;
   statut?: string;
   date_fin?: string;

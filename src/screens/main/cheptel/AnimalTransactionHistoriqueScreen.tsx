@@ -14,7 +14,7 @@ import AppHeader from '../../../components/AppHeader';
 import AppEmptyState from '../../../components/AppEmptyState';
 import EventDetailModal, { EventDetailModalRef } from '../../../components/EventDetailModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import transactionService from '../../../services/transaction.service';
+import { getLocalTransactions } from '../../../database/repositories/transactionRepository';
 import { TransactionHistoriqueAnimal } from '../../../types/transaction.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 
@@ -37,13 +37,12 @@ const AnimalTransactionHistoriqueScreen = () => {
       setLoading(true);
       setError(null);
 
-      const { getTransactionsByAnimal } = await import('../../../database/repositories/transactionRepository');
       const farm = await (await import('../../../storage/farmStorage')).farmStorage.getActiveFarm();
       if (!farm) {
         throw new Error('Aucune ferme active');
       }
 
-      const transactions = await getTransactionsByAnimal(farm.id, animalId);
+      const transactions = await getLocalTransactions(farm.id, animalId);
 
       // Calculate statistics
       const total_revenus = transactions

@@ -10,19 +10,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Modalize } from 'react-native-modalize';
-import AppHeader from '../../components/AppHeader';
 import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
+import AppHeader from '../../components/AppHeader';
 import reproductionService from '../../services/reproduction.service';
 import { authStorage } from '../../storage/authStorage';
+import { farmStorage } from '../../storage/farmStorage';
 import { ReproductionEvent, ReproductionEventType } from '../../types/reproduction.types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Theme } from '../../config/colors';
 
 // Configuration des types reproductifs avec icônes et couleurs
 const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   'Chaleur': { icon: 'fire', color: '#ff9800' },
   'Saillie': { icon: 'heart-pulse', color: '#e91e63' },
-  'Gestation confirmée': { icon: 'human-female', color: '#9c27b0' },
+  'Gestation': { icon: 'human-female', color: '#9c27b0' },
   'Mise bas': { icon: 'baby-face-outline', color: '#4caf50' },
 };
 
@@ -36,6 +38,7 @@ const ReproductionScreen = () => {
   const [eventTypes, setEventTypes] = useState<ReproductionEventType[]>([]);
   const [events, setEvents] = useState<ReproductionEvent[]>([]);
   const [females, setFemales] = useState<any[]>([]);
+  const [males, setMales] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<ReproductionEvent | null>(null);
@@ -43,9 +46,8 @@ const ReproductionScreen = () => {
 
   const loadActiveFarm = async () => {
     try {
-      const activeFarm = await authStorage.getItem('active_farm');
-      if (activeFarm) {
-        const farm = JSON.parse(activeFarm);
+      const farm = await farmStorage.getActiveFarm();
+      if (farm) {
         setFarmId(farm.id);
         return farm;
       }
@@ -68,19 +70,20 @@ const ReproductionScreen = () => {
       const { getLocalTypeEvenements } = await import('../../database/repositories/typeEvenementRepository');
       const { getLocalAnimals } = await import('../../database/repositories/animalRepository');
       const { getReproductionEvents } = await import('../../database/repositories/reproductionRepository');
-      
-      const [types, femalesData, eventsData] = await Promise.all([
+
+      const [types, animalsData, eventsData] = await Promise.all([
         getLocalTypeEvenements(),
         getLocalAnimals(farm.id),
         getReproductionEvents(farm.id),
       ]);
-      
+
       // Filtrer les types reproductifs (exclure mouvements)
       const reproductionTypes = types.filter(
         (type) => !EXCLUDED_TYPES.includes(type.nom_type)
       );
       setEventTypes(reproductionTypes);
-      setFemales(femalesData.filter((a: any) => a.sexe === 'femelle' && a.statut === 'ACTIF'));
+      setFemales(animalsData.filter((a: any) => a.sexe === 'femelle' && !['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')));
+      setMales(animalsData.filter((a: any) => a.sexe === 'male' && !['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')));
       setEvents(eventsData);
     } catch (e: any) {
       console.error('Error loading data:', e);
@@ -125,11 +128,21 @@ const ReproductionScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader title="Reproduction" subtitle="Suivi reproductif" showBackground showMenuButton onMenuPress={() => (navigation as any).openDrawer()} />
+      <AppHeader
+        showBackground={false}
+        title="Reproduction"
+        subtitle="Suivi reproductif"
+        showMenuButton
+        onMenuPress={() => (navigation as any).openDrawer()}
+        showRightButton
+        rightButtonIcon="plus"
+        onRightButtonPress={openAddEventScreen}
+        style={styles.header}
+      />
       <View style={styles.content}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
         {loading ? (
-          <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#2E7D32" /></View>
+          <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Theme.primary} /></View>
         ) : (
           <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />} style={styles.scrollView}>
             <AppText style={styles.sectionTitle}>Événements reproductifs</AppText>
@@ -170,9 +183,6 @@ const ReproductionScreen = () => {
             )}
           </ScrollView>
         )}
-        <TouchableOpacity style={styles.fab} onPress={openAddEventScreen}>
-          <MaterialCommunityIcons name="plus" size={28} color="#fff" />
-        </TouchableOpacity>
       </View>
 
       <Modalize
@@ -210,6 +220,27 @@ const ReproductionScreen = () => {
                 })()}
               </AppText>
             </View>
+
+            {(() => {
+              // Check if this is a saillie event by checking metadata
+              try {
+                const metadata = selectedEvent.metadonnees ? JSON.parse(selectedEvent.metadonnees) : {};
+                if (metadata.male_id && males.length > 0) {
+                  const male = males.find((m: any) => m.id === metadata.male_id);
+                  if (male) {
+                    return (
+                      <View style={styles.detailRow}>
+                        <AppText style={styles.detailLabel}>Mâle</AppText>
+                        <AppText style={styles.detailValueText}>{male.nom || 'Mâle inconnu'}</AppText>
+                      </View>
+                    );
+                  }
+                }
+              } catch (e) {
+                // Invalid JSON, ignore
+              }
+              return null;
+            })()}
 
             <View style={styles.detailRow}>
               <AppText style={styles.detailLabel}>Date</AppText>
@@ -260,7 +291,10 @@ const ReproductionScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: { flex: 1, backgroundColor: Theme.backgroundLight },
+  header: {
+    backgroundColor: Theme.primary,
+  },
   content: { flex: 1, padding: 16 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 12, borderRadius: 12, marginBottom: 12 },
   searchInput: { flex: 1, marginLeft: 8, paddingVertical: 12 },
@@ -278,7 +312,6 @@ const styles = StyleSheet.create({
   eventRight: { alignItems: 'flex-end' },
   eventDate: { color: '#757575', fontSize: 12 },
   eventDescription: { marginTop: 8, fontSize: 14 },
-  fab: { position: 'absolute', right: 24, bottom: 24, width: 56, height: 56, borderRadius: 28, backgroundColor: '#2E7D32', justifyContent: 'center', alignItems: 'center', elevation: 6 },
   errorBanner: { backgroundColor: '#FFEBEE', borderRadius: 8, padding: 10, marginBottom: 10 },
   errorText: { color: '#C62828' },
   bottomSheetModal: { borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: '#FFFFFF' },

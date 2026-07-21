@@ -15,11 +15,10 @@ import AppTextInput from '../../../components/AppTextInput';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import AppFarmPicker from '../../../components/AppFarmPicker';
 import { farmStorage } from '../../../storage/farmStorage';
-import mouvementService from '../../../services/mouvement.service';
-import animalService from '../../../services/animal.service';
 import { TransfertRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import { getLocalAnimalById } from '../../../database/repositories/animalRepository';
 
 type AnimalTransfertRouteProp = RouteProp<CheptelStackParamList, 'AnimalTransfert'>;
 type AnimalTransfertNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalTransfert'>;
@@ -52,7 +51,7 @@ const AnimalTransfertScreen = () => {
     const loadAnimalContext = async () => {
       try {
         setLoadingContext(true);
-        const animal = await animalService.getAnimal(animalId);
+        const animal = await getLocalAnimalById(animalId);
         setAnimalContext(animal);
       } catch (error: any) {
         setSubmitError(error.message || 'Impossible de charger les détails de l’animal');
@@ -78,6 +77,7 @@ const AnimalTransfertScreen = () => {
     if (!validate()) return;
 
     if (!typeEvenementId) {
+      console.error('[AUDIT] Transfert - No type evenement id');
       setSubmitError("Type d'événement non spécifié. Veuillez sélectionner depuis les actions de l'animal.");
       return;
     }
@@ -88,6 +88,7 @@ const AnimalTransfertScreen = () => {
 
       const farm = await farmStorage.getActiveFarm();
       if (!farm) {
+        console.error('[AUDIT] Transfert - No active farm');
         throw new Error('Aucune ferme active');
       }
 

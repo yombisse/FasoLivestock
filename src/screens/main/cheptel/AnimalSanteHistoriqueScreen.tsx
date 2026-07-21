@@ -14,7 +14,7 @@ import AppHeader from '../../../components/AppHeader';
 import AppEmptyState from '../../../components/AppEmptyState';
 import EventDetailModal, { EventDetailModalRef } from '../../../components/EventDetailModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import santeService from '../../../services/sante.service';
+import { getEvenementsSanitaires } from '../../../database/repositories/santeEvenementsRepository';
 import { SanteHistoriqueAnimal } from '../../../types/sante.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 
@@ -36,14 +36,12 @@ const AnimalSanteHistoriqueScreen = () => {
     try {
       setLoading(true);
       setError(null);
-      const { getEvenementsSanitaires } = await import('../../../database/repositories/santeEvenementsRepository');
       const farm = await (await import('../../../storage/farmStorage')).farmStorage.getActiveFarm();
       if (!farm) {
         throw new Error('Aucune ferme active');
       }
-      const events = await getEvenementsSanitaires(farm.id);
-      const animalEvents = events.filter((e: any) => e.animal_id === animalId);
-      setHistorique({ events: animalEvents } as any);
+      const events = await getEvenementsSanitaires(farm.id, animalId);
+      setHistorique({ events } as any);
     } catch (error: any) {
       console.error('Error loading health history:', error);
       setError(error.message || 'Erreur lors du chargement de l\'historique');

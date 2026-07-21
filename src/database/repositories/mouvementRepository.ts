@@ -1,4 +1,5 @@
-import { getDatabase } from '../connection';
+import database from '../watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 
 export interface MouvementEvent {
   id: string;
@@ -10,41 +11,55 @@ export interface MouvementEvent {
   categorie: string;
   statut_avant?: string;
   statut_apres?: string;
-  type_nom?: string;
-  animal_nom?: string;
-  animal_numero?: string;
+  farm_destination_id?: string;
+  cout?: number;
+  transaction_id?: string;
+  sync_status: 'synced' | 'pending' | 'conflict';
+  version: number;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 /**
- * Get movement events for a specific animal (category = MOUVEMENT only)
+ * Get movement events for a specific animal
+ * Filters events with categorie = 'MOUVEMENT'
  */
-export async function getMouvementEvents(farmId: string, animalId: string): Promise<MouvementEvent[]> {
+export async function getMouvementEvents(farmId: string, animalId?: string): Promise<MouvementEvent[]> {
   try {
-    const db = await getDatabase();
-    const result = await db.execute(
-      `SELECT e.*, te.nom_type as type_nom, a.nom as animal_nom, a.numero_identification as animal_numero 
-       FROM evenements e 
-       LEFT JOIN type_evenements te ON e.type_evenement_id = te.id 
-       LEFT JOIN animals a ON e.animal_id = a.id 
-       WHERE e.farm_id = ? AND e.animal_id = ? AND e.categorie = 'MOUVEMENT' AND e.deleted_at IS NULL 
-       ORDER BY e.date_evenement DESC`,
-      [farmId, animalId]
-    );
+    const whereConditions = [
+      Q.where('farm_id', farmId),
+      Q.where('categorie', 'MOUVEMENT'),
+    ];
 
-    // Helper to get rows from op-sqlite result
-    const getRows = (result: any) => {
-      if (!result) return [];
-      if (result.rows) return result.rows as any[];
-      if (Array.isArray(result)) return result as any[];
-      return [];
-    };
+    if (animalId) {
+      whereConditions.push(Q.where('animal_id', animalId));
+    }
 
-    const events = getRows(result) as MouvementEvent[];
-    return events;
+    const events = await database.get('evenements')
+      .query(...whereConditions)
+      .fetch();
+    return events as unknown as MouvementEvent[];
   } catch (error) {
-    console.error('[MouvementRepository] Error fetching mouvement events:', error);
-    throw error;
+    console.error('[MouvementRepository] Error getting mouvement events:', error);
+    return [];
   }
+}
+
+/**
+ * Get movement events with observable for reactivity
+ */
+export function observeMouvementEvents(farmId: string, animalId?: string) {
+  const whereConditions = [
+    Q.where('farm_id', farmId),
+    Q.where('categorie', 'MOUVEMENT'),
+  ];
+
+  if (animalId) {
+    whereConditions.push(Q.where('animal_id', animalId));
+  }
+
+  return database.get('evenements')
+    .query(...whereConditions)
+    .observe();
 }

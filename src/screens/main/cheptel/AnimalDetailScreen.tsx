@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -19,56 +19,75 @@ import AppBottomSheet, { BottomSheetOption, AppBottomSheetRef } from '../../../c
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
-import { getLocalAnimalById, deleteAnimal } from '../../../database/repositories/animalRepository';
-import { getLocalTypeEvenements } from '../../../database/repositories/typeEvenementRepository';
+import database from '../../../database/watermelonIndex';
+import { useTypeEvenements } from '../../../hooks/useTypeEvenements';
+import { getRappels, calculateJoursRestants, getUrgenceColor } from '../../../database/repositories/rappelRepository';
 
 type AnimalDetailRouteProp = RouteProp<CheptelStackParamList, 'AnimalDetail'>;
 type AnimalDetailNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalDetail'>;
 
-const AnimalDetailScreen = () => {
-  const navigation = useNavigation<AnimalDetailNavigationProp>();
-  const route = useRoute<AnimalDetailRouteProp>();
+const AnimalDetailScreen = ({navigation,route}) => {
+  
   const { animalId } = route.params;
   const insets = useSafeAreaInsets();
 
-  const [animal, setAnimal] = useState<Animal | null>(null);
+  const [animal, setAnimal] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   const [showFullScreenImage, setShowFullScreenImage] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
-  const [typeEvenements, setTypeEvenements] = useState<any[]>([]);
+  const [rappels, setRappels] = useState<any[]>([]);
   const actionSheetRef = useRef<AppBottomSheetRef>(null);
+
+  // WatermelonDB hook for type evenements
+  const { typeEvenements, loading: loadingTypes } = useTypeEvenements();
 
   const loadAnimal = async () => {
     try {
       setLoading(true);
-      setError(null);
-      const data = await getLocalAnimalById(animalId);
-      setAnimal(data);
+      const animalRecord = await database.get('animals').find(animalId);
+      console.log('[AnimalDetail] Animal loaded:', animalRecord.id);
+      console.log('[AnimalDetail] _status:', (animalRecord as any)._status);
+      console.log('[AnimalDetail] All fields:', {
+        id: animalRecord.id,
+        nom: animalRecord.nom,
+        statut: animalRecord.statut,
+        _status: (animalRecord as any)._status,
+      });
+
+      // Load relations
+      await animalRecord.espece;
+      await animalRecord.farm;
+      await animalRecord.mother;
+      await animalRecord.lot;
+
+      console.log('[AnimalDetail] Relations loaded:', {
+        espece: animalRecord.espece,
+        farm: animalRecord.farm,
+        mother: animalRecord.mother,
+        lot: animalRecord.lot,
+      });
+
+      setAnimal(animalRecord);
+
+      // Load rappels for this animal
+      const farmId = (animalRecord as any).farm_id;
+      if (farmId) {
+        const animalRappels = await getRappels(farmId, animalId);
+        setRappels(animalRappels);
+      }
     } catch (err: any) {
-      setError(err.message || 'Erreur lors du chargement de l\'animal');
+      console.error('Error loading animal:', err);
+      setError(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadTypeEvenements = async () => {
-    try {
-      const typeEvenementsData = await getLocalTypeEvenements();
-      // Filter to only show MOUVEMENT type evenements
-      const filteredTypeEvenements = typeEvenementsData.filter(
-        (type: any) => type.categorie === 'MOUVEMENT'
-      );
-      setTypeEvenements(filteredTypeEvenements);
-    } catch (error) {
-      console.error('Error loading type evenements:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadAnimal();
-    loadTypeEvenements();
-  }, [animalId]);
+  // Filter type evenements to only show MOUVEMENT type
+  const movementTypeEvenements = typeEvenements.filter(
+    (type: any) => type.categorie === 'MOUVEMENT'
+  );
 
   const handleEdit = () => {
     navigation.navigate('AnimalForm', { animalId });
@@ -124,9 +143,11 @@ const AnimalDetailScreen = () => {
           onPress: async () => {
             try {
               setDeleting(true);
-              await deleteAnimal(animalId);
+              const { deleteAnimal } = await import('../../../database/repositories/animalRepository');
+              await deleteAnimal(animal.id);
               navigation.goBack();
             } catch (error: any) {
+              console.error('[AUDIT] AnimalDetail - Delete animal error:', error);
               Alert.alert('Erreur', error.message || 'Erreur lors de la suppression');
               setDeleting(false);
             }
@@ -138,7 +159,7 @@ const AnimalDetailScreen = () => {
 
   const actionSheetOptions: BottomSheetOption[] = [
     // Dynamic movement type evenements
-    ...typeEvenements.map((type) => ({
+    ...movementTypeEvenements.map((type) => ({
       id: type.id,
       label: type.nom_type,
       icon: 'swap-horizontal',
@@ -149,6 +170,11 @@ const AnimalDetailScreen = () => {
     { id: 'historique', label: 'Voir l\'historique', icon: 'history', iconColor: '#1976D2', onPress: handleHistorique },
     { id: 'delete', label: 'Supprimer', icon: 'trash-can', iconColor: '#D32F2F', onPress: handleDelete },
   ];
+
+  // Load animal on mount
+  React.useEffect(() => {
+    loadAnimal();
+  }, [animalId]);
 
   // Couleurs avatar par espèce
   const getAvatarColor = (especeNom?: string) => {
@@ -169,7 +195,7 @@ const AnimalDetailScreen = () => {
     let backgroundColor = '#F5F5F5';
     let textColor = '#757575';
 
-    if (status === 'ACTIF') {
+    if (status === 'SAIN') {
       backgroundColor = '#E8F5E9';
       textColor = '#2E7D32';
     } else if (status === 'VENDU') {
@@ -188,18 +214,11 @@ const AnimalDetailScreen = () => {
       </View>
     );
   };
-
-  // Styles dynamiques
-  const imageSectionStyle = {
-    height: 300,
-    marginTop: -insets.top,
-  };
-
-  // Indicateur sync
   const getSyncIndicator = (syncStatus?: string) => {
-    if (!syncStatus) return null;
-    switch (syncStatus) {
-      case 'synced':
+      console.log('[AnimalDetail] getSyncIndicator called with:', syncStatus);
+      // WatermelonDB uses _status internally: 'created', 'updated', 'deleted', or undefined/null for synced
+      if (!syncStatus) {
+        // No status means synced with server
         return (
           <View style={styles.syncIndicator}>
             <MaterialCommunityIcons name="check-circle" size={16} color="#2E7D32" />
@@ -208,27 +227,36 @@ const AnimalDetailScreen = () => {
             </AppText>
           </View>
         );
-      case 'pending':
-        return (
-          <View style={styles.syncIndicator}>
-            <MaterialCommunityIcons name="clock-outline" size={16} color="#F57C00" />
-            <AppText style={styles.syncText} color="#F57C00" fontSize={12}>
-              En attente
-            </AppText>
-          </View>
-        );
-      case 'conflict':
-        return (
-          <View style={styles.syncIndicator}>
-            <MaterialCommunityIcons name="alert-circle" size={16} color="#D32F2F" />
-            <AppText style={styles.syncText} color="#D32F2F" fontSize={12}>
-              Conflit
-            </AppText>
-          </View>
-        );
-      default:
-        return null;
-    }
+      }
+      switch (syncStatus) {
+        case 'created':
+        case 'updated':
+          return (
+            <View style={styles.syncIndicator}>
+              <MaterialCommunityIcons name="clock-outline" size={16} color="#F57C00" />
+              <AppText style={styles.syncText} color="#F57C00" fontSize={12}>
+                En attente
+              </AppText>
+            </View>
+          );
+        case 'deleted':
+          return (
+            <View style={styles.syncIndicator}>
+              <MaterialCommunityIcons name="delete-outline" size={16} color="#757575" />
+              <AppText style={styles.syncText} color="#757575" fontSize={12}>
+                Supprimé
+              </AppText>
+            </View>
+          );
+        default:
+          return null;
+      }
+    };
+
+  // Styles dynamiques
+  const imageSectionStyle = {
+    height: 300,
+    marginTop: -insets.top,
   };
 
   // Calculer l'âge
@@ -334,7 +362,7 @@ const AnimalDetailScreen = () => {
             )}
             <View style={styles.headerBadges}>
               {getStatusBadge(animal.statut)}
-              {getSyncIndicator(animal.sync_status)}
+              {getSyncIndicator((animal as any)._status)}
             </View>
           </View>
 
@@ -409,10 +437,26 @@ const AnimalDetailScreen = () => {
           </AppText>
           <View style={styles.sectionRow}>
             <AppText style={styles.label} color="#757575">
-              Ferme
+              Type
+            </AppText>
+            <AppText style={styles.value}>
+              {animal.origine === 'naissance' ? 'Né sur place' : animal.origine === 'achat' ? 'Acheté' : 'Enregistrement'}
+            </AppText>
+          </View>
+          <View style={styles.sectionRow}>
+            <AppText style={styles.label} color="#757575">
+              Ferme actuelle
             </AppText>
             <AppText style={styles.value}>{animal.farm?.name || 'Non renseigné'}</AppText>
           </View>
+          {animal.origine === 'achat' && animal.farm_source_id && (
+            <View style={styles.sectionRow}>
+              <AppText style={styles.label} color="#757575">
+                Ferme d'origine
+              </AppText>
+              <AppText style={styles.value}>ID: {animal.farm_source_id}</AppText>
+            </View>
+          )}
           <View style={styles.sectionRow}>
             <AppText style={styles.label} color="#757575">
               Mère
@@ -425,7 +469,7 @@ const AnimalDetailScreen = () => {
             <AppText style={styles.label} color="#757575">
               Lot
             </AppText>
-            <AppText style={styles.value}>{animal.lot?.nom || 'Non renseigné'}</AppText>
+            <AppText style={styles.value}>{animal.lot?.nom_lot || 'Non renseigné'}</AppText>
           </View>
         </View>
 
@@ -503,6 +547,42 @@ const AnimalDetailScreen = () => {
           <MaterialCommunityIcons name="chevron-right" size={24} color="#F57C00" />
         </TouchableOpacity>
 
+        {/* Section Rappels */}
+        {rappels.length > 0 && (
+          <View style={styles.section}>
+            <AppText style={styles.sectionTitle} fontWeight="bold">
+              Rappels
+            </AppText>
+            {rappels.map((rappel, index) => {
+              const jours = calculateJoursRestants(rappel.date_prevue);
+              const color = getUrgenceColor(rappel);
+              return (
+                <View key={index} style={[styles.rappelCard, { borderLeftColor: color }]}>
+                  <View style={[styles.rappelIconCircle, { backgroundColor: color + '20' }]}>
+                    <MaterialCommunityIcons name="bell" size={20} color={color} />
+                  </View>
+                  <View style={styles.rappelContent}>
+                    <AppText style={styles.rappelTitle}>{rappel.type_rappel}</AppText>
+                    <AppText style={styles.rappelDetail}>
+                      {rappel.statut === 'EN_RETARD' ? `En retard depuis ${Math.abs(jours)} jour${Math.abs(jours) > 1 ? 's' : ''}` : jours === 0 ? "Aujourd'hui" : `Dans ${jours} jour${jours > 1 ? 's' : ''}`} — {rappel.date_prevue}
+                    </AppText>
+                    {rappel.note && (
+                      <AppText style={styles.rappelNote} color="#757575" fontSize={11}>
+                        {rappel.note}
+                      </AppText>
+                    )}
+                  </View>
+                  <View style={[styles.rappelStatusBadge, { backgroundColor: color + '20' }]}>
+                    <AppText style={[styles.rappelStatusText, { color }]} fontSize={11} fontWeight="600">
+                      {rappel.statut === 'EN_RETARD' ? 'Retard' : rappel.statut === 'REALISE' ? 'Réalisé' : 'En attente'}
+                    </AppText>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {/* Actions */}
         <View style={styles.actions}>
           <AppButton
@@ -510,7 +590,7 @@ const AnimalDetailScreen = () => {
             onPress={handleEdit}
             style={styles.actionButton}
           />
-          {animal?.statut?.toUpperCase() === 'ACTIF' && (
+          {animal?.statut?.toUpperCase() === 'SAIN' && (
             <AppButton
               title="Actions"
               onPress={handleActions}
@@ -744,6 +824,52 @@ const styles = StyleSheet.create({
   },
   linkSubtitle: {
     fontSize: 12,
+  },
+  rappelCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  rappelIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  rappelContent: {
+    flex: 1,
+  },
+  rappelTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#212121',
+    marginBottom: 2,
+  },
+  rappelDetail: {
+    fontSize: 12,
+    color: '#757575',
+  },
+  rappelNote: {
+    marginTop: 2,
+  },
+  rappelStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  rappelStatusText: {
+    fontSize: 10,
   },
   actions: {
     flexDirection: 'row',

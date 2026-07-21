@@ -26,8 +26,9 @@ const CheptelScreen = () => {
     <SafeAreaView style={styles.container}>
       <AppHeader
         title="Cheptel"
-        showBackground={true}
-        showMenuButton={true}
+        showBackground={false}
+        showMenuButton
+        style={styles.header}
       />
       <View style={styles.content}>
         <AppText style={styles.title} fontWeight="bold">
@@ -47,6 +48,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#2D6A4F',
   },
   content: {
     flex: 1,

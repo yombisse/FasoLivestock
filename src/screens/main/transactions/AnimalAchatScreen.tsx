@@ -14,16 +14,17 @@ import AppHeader from '../../../components/AppHeader';
 import AppTextInput from '../../../components/AppTextInput';
 import AppSelect, { AppSelectOption } from '../../../components/AppSelect';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
-import { Transaction, TransactionType, CreateTransactionData } from '../../../types/transaction.types';
-import { createTransaction } from '../../../database/repositories/transactionRepository';
-import { createAnimal } from '../../../database/repositories/animalRepository';
-import { createLocalRecord } from '../../../database/repositories/baseRepository';
-import { getTypeEvenementIdByName, getLocalTypeEvenements } from '../../../database/repositories/typeEvenementRepository';
-import { getLocalCategories } from '../../../database/repositories/categorieRepository';
-import { getLocalEspeces } from '../../../database/repositories/especeRepository';
-import transactionService from '../../../services/transaction.service';
+import database from '../../../database/watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
+import { useEspeces } from '../../../hooks/useEspeces';
+import { useTypeEvenements } from '../../../hooks/useTypeEvenements';
 import { farmStorage } from '../../../storage/farmStorage';
 import { authStorage } from '../../../storage/authStorage';
+import { CategorieSystemeIds } from '../../../constants/categories';
+import { TypeEvenementIds } from '../../../constants/typeEvenements';
+import { createAnimal } from '../../../database/repositories/animalRepository';
+import { createEvenement } from '../../../database/repositories/evenementRepository';
+import { createTransaction } from '../../../database/repositories/transactionRepository';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 type AnimalAchatRouteProp = RouteProp<any, 'AnimalAchat'>;
@@ -33,15 +34,22 @@ const AnimalAchatScreen = () => {
   const navigation = useNavigation<AnimalAchatNavigationProp>();
   const route = useRoute<AnimalAchatRouteProp>();
   
-  // Get categorieId from route params (passed from TransactionListScreen)
-  const categorieId = route.params?.categorieId;
+  // Use constant category ID for "Achat d'animaux"
+  const categorieId = CategorieSystemeIds.ACHAT_ANIMAUX;
 
   const [loading, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
-  const [especes, setEspeces] = useState<AppSelectOption[]>([]);
-  const [typeEvenements, setTypeEvenements] = useState<any[]>([]);
+
+  // WatermelonDB hooks
+  const { especes, loading: loadingEspeces } = useEspeces();
+  const { typeEvenements, loading: loadingTypes } = useTypeEvenements();
+
+  const especeOptions = especes.map((e: any) => ({
+    label: e.nom,
+    value: e.id,
+  }));
 
   const [montant, setMontant] = useState('');
   const [dateTransaction, setDateTransaction] = useState<Date | undefined>(new Date());
@@ -51,77 +59,52 @@ const AnimalAchatScreen = () => {
   const [animalNom, setAnimalNom] = useState('');
   const [animalEspeceId, setAnimalEspeceId] = useState('');
   const [animalRace, setAnimalRace] = useState('');
-  const [animalSexe, setAnimalSexe] = useState<'MALE' | 'FEMELLE'>('MALE');
+  const [animalSexe, setAnimalSexe] = useState<'male' | 'femelle'>('male');
   const [animalPoids, setAnimalPoids] = useState('');
 
   const SEXE_OPTIONS: AppSelectOption[] = [
-    { label: 'Mâle', value: 'MALE' },
-    { label: 'Femelle', value: 'FEMELLE' },
+    { label: 'Mâle', value: 'male' },
+    { label: 'Femelle', value: 'femelle' },
   ];
 
   const loadActiveFarm = async () => {
     try {
+      console.log('[AnimalAchatScreen] Loading active farm...');
       const farm = await farmStorage.getActiveFarm();
+      console.log('[AnimalAchatScreen] Active farm from storage:', farm);
       if (farm) {
         setFarmId(farm.id);
-        // Load expense categories if categorieId not provided
-        if (!categorieId) {
-          const localCategories = await getLocalCategories();
-          const expenseCategories = localCategories.filter((cat: any) => cat.type === 'DEPENSE');
-          if (expenseCategories.length > 0) {
-            console.log('[AnimalAchatScreen] Using first expense category as fallback');
-          }
-        }
+        console.log('[AnimalAchatScreen] Farm ID set:', farm.id);
       } else {
+        console.warn('[AnimalAchatScreen] No active farm found in storage');
         setError('Aucune ferme active sélectionnée');
       }
     } catch (error) {
-      console.error('Error loading active farm:', error);
+      console.error('[AnimalAchatScreen] Error loading active farm:', error);
       setError('Erreur lors du chargement de la ferme active');
-    }
-  };
-
-  const loadEspeces = async () => {
-    try {
-      const especesData = await getLocalEspeces();
-      const options = especesData.map((e: any) => ({
-        label: e.nom,
-        value: e.id,
-      }));
-      setEspeces(options);
-    } catch (error) {
-      console.error('Error loading especes:', error);
-    }
-  };
-
-  const loadTypeEvenements = async () => {
-    try {
-      const typeEvenementsData = await getLocalTypeEvenements();
-      setTypeEvenements(typeEvenementsData);
-    } catch (error) {
-      console.error('Error loading type evenements:', error);
     }
   };
 
   useEffect(() => {
     loadActiveFarm();
-    loadEspeces();
-    loadTypeEvenements();
   }, []);
 
   const handleSubmit = async () => {
     if (!farmId) {
-      Alert.alert('Erreur', 'Aucune ferme active sélectionnée');
+      console.error('[AnimalAchatScreen] No active farm selected');
+      setError('Aucune ferme active sélectionnée');
       return;
     }
 
     if (!categorieId) {
-      Alert.alert('Erreur', 'Catégorie non spécifiée. Veuillez sélectionner une catégorie depuis la liste des transactions.');
+      console.error('[AnimalAchatScreen] Category not specified');
+      setError('Catégorie non spécifiée. Veuillez sélectionner une catégorie depuis la liste des transactions.');
       return;
     }
 
     if (!montant || !dateTransaction || !animalNumero || !animalEspeceId) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires (numéro, espèce, montant, date)');
+      console.error('[AnimalAchatScreen] Missing required fields');
+      setError('Veuillez remplir tous les champs obligatoires (numéro, espèce, montant, date)');
       return;
     }
 
@@ -130,66 +113,79 @@ const AnimalAchatScreen = () => {
       setError(null);
       console.log('[AnimalAchatScreen] Starting achat submission');
 
-      const user = await authStorage.getUser();
-      const userId = user?.id;
+      // Get user ID from auth storage
+      const userId = await authStorage.getUserId();
+      console.log('[AnimalAchatScreen] User ID:', userId);
 
-      // Step 1: Create the Animal with statut ACTIF
+      // Use constant type_evenement_id for achat
+      const typeEvenementId = TypeEvenementIds.ACHAT;
+
+      // Step 1: Create the Animal using repository
       const newAnimal = await createAnimal({
         farm_id: farmId,
-        nom: animalNom || undefined,
+        nom: animalNom || '',
         numero_identification: animalNumero,
         espece_id: animalEspeceId,
-        race: animalRace || undefined,
+        race: animalRace || '',
         sexe: animalSexe,
-        poids: animalPoids ? parseFloat(animalPoids) : undefined,
-        statut: 'ACTIF',
+        poids: animalPoids ? parseFloat(animalPoids) : 0,
+        statut: 'SAIN',
+        last_modified_by: userId,
       });
-      console.log('[AnimalAchatScreen] Created animal with ID:', newAnimal.id, 'numero:', animalNumero);
+      console.log('[AnimalAchatScreen] Created animal with ID:', newAnimal.id);
 
-      // Step 2: Get type_evenement_id for 'Achat' from loaded type evenements
-      const achatTypeEvenement = typeEvenements.find(
-        (type: any) => type.nom_type.toLowerCase() === 'achat'
-      );
-      const typeEvenementId = achatTypeEvenement?.id;
-      if (!typeEvenementId) {
-        Alert.alert('Erreur', 'Type d\'événement Achat introuvable. Veuillez synchroniser.');
-        return;
-      }
-
-      // Step 3: Create the Evenement associated with the animal
-      await createLocalRecord('evenements', {
+      // Step 2: Create the Evenement using repository
+      const createdEvent = await createEvenement({
         farm_id: farmId,
         animal_id: newAnimal.id,
         type_evenement_id: typeEvenementId,
         date_evenement: dateTransaction.toISOString().split('T')[0],
         description: description || `Achat de ${animalNumero}`,
         categorie: 'MOUVEMENT',
+        statut_avant: 'SAIN',
+        statut_apres: 'SAIN',
+        last_modified_by: userId,
       });
       console.log('[AnimalAchatScreen] Created evenement for animal');
 
-      // Step 4: Create the Transaction with the categorieId passed from TransactionListScreen
-      const transactionData: CreateTransactionData = {
+      // Step 3: Create the Transaction using repository (NOT linked to evenement - per contract)
+      const createdTransaction = await createTransaction({
         farm_id: farmId,
         type_transaction: 'SORTIE',
         montant: parseFloat(montant),
         date_transaction: dateTransaction.toISOString(),
         description: description || `Achat de ${animalNumero}`,
-        tiers: tiers || undefined,
-        user_id: userId,
+        tiers: tiers || '',
         animal_id: newAnimal.id,
         categorie_id: categorieId,
-      };
+        user_id: userId,
+        last_modified_by: userId,
+      });
+      console.log('[AnimalAchatScreen] Created transaction');
+      
+      // Check WatermelonDB sync queue status after transaction
+      const pendingRecords = await database.get('animals')
+        .query(Q.where('_status', 'created'))
+        .fetch();
+      console.log('[AUDIT] Achat - WatermelonDB sync queue after transaction:', {
+        pending_animals: pendingRecords.length,
+      });
 
-      const transaction = await createTransaction(transactionData);
-      console.log('[AnimalAchatScreen] Created transaction with ID:', transaction.id);
-
-      Alert.alert('Succès', 'Animal et transaction enregistrés', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+      console.log('[AnimalAchatScreen] Animal and transaction recorded successfully');
+      navigation.goBack();
     } catch (err: any) {
-      console.error('[AnimalAchatScreen] Error:', err);
+      console.error('[AUDIT] Achat - Error during submission:', {
+        error_message: err.message,
+        error_stack: err.stack,
+        farm_id: farmId,
+        categorie_id: categorieId,
+        animal_numero: animalNumero,
+        animal_nom: animalNom,
+        espece_id: animalEspeceId,
+        montant: montant,
+        date_transaction: dateTransaction?.toISOString(),
+      });
       setError(err.message || 'Erreur lors de l\'enregistrement');
-      Alert.alert('Erreur', err.message || 'Erreur lors de l\'enregistrement');
     } finally {
       setSubmitting(false);
     }
@@ -197,8 +193,15 @@ const AnimalAchatScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader title="Achat d'animal" showBackButton={true} />
-      <ScrollView style={styles.content}>
+      <AppHeader
+        title="Achat d'animal"
+        showBackButton={true}
+        showBackground={false}
+        style={styles.header}
+        titleStyle={styles.headerTitle}
+        onBackPress={() => navigation.goBack()}
+      />
+      <ScrollView style={styles.content} contentContainerStyle={styles.scrollcontainer}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
 
         {/* Animal Info Card */}
@@ -242,7 +245,7 @@ const AnimalAchatScreen = () => {
           <AppSelect
             value={animalEspeceId}
             onValueChange={setAnimalEspeceId}
-            options={especes}
+            options={especeOptions}
             placeholder="Sélectionner l'espèce"
           />
 
@@ -322,9 +325,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  header: {
+    backgroundColor: '#2E7D32',
+    height: 100,
+    paddingBottom: 12,
+  },
+  headerTitle: {
+    alignSelf: 'center',
+  },
   content: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
+   
+  },
+  scrollcontainer:{
+    paddingVertical:16
+
   },
   loadingContainer: {
     flex: 1,

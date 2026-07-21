@@ -13,7 +13,7 @@ const AppStatutBadge = ({ statut }: AppStatutBadgeProps) => {
   let backgroundColor = '#F5F5F5';
   let textColor = '#757575';
 
-  if (status === 'ACTIF') {
+  if (status === 'SAIN') {
     backgroundColor = '#E8F5E9';
     textColor = '#2E7D32';
   } else if (status === 'VENDU') {

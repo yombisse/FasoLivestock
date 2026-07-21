@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import AppText from '../AppText';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ListItemCard, { ListItemCardProps } from './ListItemCard';
@@ -9,10 +9,13 @@ import { Animal } from '../../types/animal.types';
 export interface AnimalListItemProps {
   animal: Animal;
   onPress?: (animal: Animal) => void;
+  onEdit?: (animal: Animal) => void;
+  onDelete?: (animal: Animal) => void;
   isActive?: boolean;
+  healthStatus?: string;
 }
 
-const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, ...props }) => {
+const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, onEdit, onDelete, healthStatus, ...props }) => {
   // Get species icon
   const getSpeciesIcon = (especeNom?: string) => {
     if (!especeNom) return 'cow';
@@ -37,7 +40,9 @@ const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, ...pro
     return '#BDBDBD';
   };
 
-  const statusColors = getAnimalStatusColor(animal.statut);
+  // Use healthStatus if provided, otherwise use animal.statut
+  const badgeStatus = healthStatus || animal.statut;
+  const statusColors = getAnimalStatusColor(badgeStatus);
   const speciesIcon = getSpeciesIcon(animal.espece?.nom);
   const speciesColor = getSpeciesColor(animal.espece?.nom);
 
@@ -52,7 +57,37 @@ const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, ...pro
     </View>
   ) : null;
 
-  const rightContent = <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />;
+  const rightContent = (
+    <View style={styles.actionButtons}>
+      {onEdit && (
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={(e) => {
+            e.stopPropagation();
+            onEdit(animal);
+          }}
+        >
+          <MaterialCommunityIcons name="pencil" size={20} color="#1976D2" />
+        </TouchableOpacity>
+      )}
+      {onDelete && (
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={(e) => {
+            e.stopPropagation();
+            onDelete(animal);
+          }}
+        >
+          <MaterialCommunityIcons name="delete" size={20} color="#D32F2F" />
+        </TouchableOpacity>
+      )}
+      <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />
+    </View>
+  );
+
+  const subtitle = animal.espece?.nom || animal.numero_identification
+    ? `${animal.espece?.nom || ''} ${animal.numero_identification ? '#' + animal.numero_identification : ''}`.trim()
+    : undefined;
 
   return (
     <ListItemCard
@@ -60,7 +95,7 @@ const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, ...pro
       iconColor="#fff"
       iconBackgroundColor={speciesColor}
       title={animal.nom}
-      subtitle={animal.numero_identification ? `#${animal.numero_identification}` : animal.espece?.nom}
+      subtitle={subtitle}
       badge={
         animal.statut
           ? {
@@ -90,6 +125,14 @@ const styles = StyleSheet.create({
   },
   footerValue: {
     color: '#212121',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    padding: 8,
+    marginRight: 4,
   },
 });
 

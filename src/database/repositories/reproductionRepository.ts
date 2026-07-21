@@ -1,139 +1,80 @@
-import { getDatabase } from '../connection';
-import { generateUUID } from '../../utils/uuid';
-import { createLocalRecord, updateLocalRecord, softDeleteLocalRecord } from './baseRepository';
-import { ReproductionEvent } from '../../types/reproduction.types';
+import database from '../watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
+import { createLocalRecord } from './baseRepository';
 
-export interface CreateReproductionEventData {
-  id?: string;
-  farm_id: string;
+export interface EvenementReproductif {
+  id: string;
   animal_id: string;
-  type_evenement_id: string;
   date_evenement: string;
+  type_evenement_id: string;
+  categorie: string;
   description?: string;
+  veterinaire?: string;
   cout?: number;
-  statut_avant?: string;
-  statut_apres?: string;
+  metadonnees?: string;
+  farm_id: string;
+  sync_status: 'synced' | 'pending' | 'conflict';
+  last_modified_by?: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
 }
 
-export interface UpdateReproductionEventData {
-  description?: string;
-  cout?: number;
-  statut_avant?: string;
-  statut_apres?: string;
-  date_evenement?: string;
+export async function createReproductionEvent(data: Omit<EvenementReproductif, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<EvenementReproductif> {
+  const result = await createLocalRecord<EvenementReproductif>('evenements', data);
+  console.log('[AUDIT] Reproduction event created:', {
+    local_id: result.id,
+    farm_id: result.farm_id,
+    animal_id: result.animal_id,
+    type_evenement_id: result.type_evenement_id,
+    categorie: result.categorie,
+    date_evenement: result.date_evenement,
+    metadonnees: result.metadonnees,
+    sync_status: (result as any).sync_status,
+    _status: (result as any)._status,
+  });
+  return result;
 }
 
-/**
- * Validate evenement payload before insertion/update
- * Throws explicit error if CHECK constraints would be violated
- */
-export function validateEvenementPayload(data: Partial<CreateReproductionEventData | UpdateReproductionEventData>): void {
-  const VALID_STATUTS = ['ACTIF', 'VENDU', 'MORT', 'PERDU'];
-  const VALID_CATEGORIES = ['MOUVEMENT', 'REPRODUCTION', 'SANITAIRE'];
-
-  if (data.statut_avant && !VALID_STATUTS.includes(data.statut_avant)) {
-    throw new Error(`statut_avant invalide: "${data.statut_avant}". Valeurs acceptées: ${VALID_STATUTS.join(', ')}`);
-  }
-
-  if (data.statut_apres && !VALID_STATUTS.includes(data.statut_apres)) {
-    throw new Error(`statut_apres invalide: "${data.statut_apres}". Valeurs acceptées: ${VALID_STATUTS.join(', ')}`);
-  }
-
-  // Note: categorie is hardcoded to 'REPRODUCTION' in createReproductionEvent, but validate for future use
-  if ('categorie' in data && data.categorie && !VALID_CATEGORIES.includes(data.categorie as string)) {
-    throw new Error(`categorie invalide: "${data.categorie}". Valeurs acceptées: ${VALID_CATEGORIES.join(', ')}`);
+export async function getReproductionEvents(farmId: string, animalId?: string): Promise<EvenementReproductif[]> {
+  if (animalId) {
+    const evenements = await database.get('evenements')
+      .query(Q.where('farm_id', farmId), Q.where('animal_id', animalId), Q.where('categorie', 'REPRODUCTION'))
+      .fetch();
+    return evenements as unknown as EvenementReproductif[];
+  } else {
+    const evenements = await database.get('evenements')
+      .query(Q.where('farm_id', farmId), Q.where('categorie', 'REPRODUCTION'))
+      .fetch();
+    return evenements as unknown as EvenementReproductif[];
   }
 }
 
-/**
- * Get reproduction events from local database
- * Filters events by category = 'REPRODUCTION'
- */
-export async function getReproductionEvents(farmId: string): Promise<ReproductionEvent[]> {
+export async function getEvenementReproductifById(id: string): Promise<EvenementReproductif | null> {
   try {
-    const db = await getDatabase();
-    const result = await db.execute(
-      `SELECT e.*, te.nom_type as type_nom, a.nom as animal_nom, a.numero_identification as animal_numero 
-       FROM evenements e 
-       LEFT JOIN type_evenements te ON e.type_evenement_id = te.id 
-       LEFT JOIN animals a ON e.animal_id = a.id 
-       WHERE e.farm_id = ? 
-       AND e.categorie = 'REPRODUCTION' 
-       AND e.deleted_at IS NULL
-       ORDER BY e.date_evenement DESC`,
-      [farmId]
-    );
-
-    let events: ReproductionEvent[] = [];
-    if (result?.rows) {
-      events = result.rows as ReproductionEvent[];
-    } else if (Array.isArray(result)) {
-      events = result as ReproductionEvent[];
+    const evenements = await database.get('evenements')
+      .query(Q.where('id', id))
+      .fetch();
+    
+    if (evenements.length > 0) {
+      return evenements[0] as unknown as EvenementReproductif;
     }
-
-    return events;
-  } catch (error) {
-    console.error('[ReproductionRepository] Error getting reproduction events:', error);
-    return [];
-  }
-}
-
-/**
- * Create a reproduction event in local database
- * Adds to sync queue for synchronization
- * @returns The ID of the created event
- */
-export async function createReproductionEvent(data: CreateReproductionEventData): Promise<string> {
-  // Validate payload before insertion
-  validateEvenementPayload(data);
-
-  const eventData = {
-    ...data,
-    categorie: 'REPRODUCTION' as const,
-  };
-  const result = await createLocalRecord<ReproductionEvent>('evenements', eventData);
-  return result.id;
-}
-
-/**
- * Get reproduction event by ID
- */
-export async function getReproductionEventById(id: string): Promise<ReproductionEvent | null> {
-  try {
-    const db = await getDatabase();
-    const result = await db.execute(
-      `SELECT * FROM evenements WHERE id = ? AND deleted_at IS NULL`,
-      [id]
-    );
-
-    if (result?.rows && result.rows.length > 0) {
-      return result.rows[0] as ReproductionEvent;
-    } else if (Array.isArray(result) && result.length > 0) {
-      return result[0] as ReproductionEvent;
-    }
-
     return null;
   } catch (error) {
-    console.error('[ReproductionRepository] Error getting reproduction event:', error);
+    console.error('[ReproductionRepository] Error getting evenement reproductif by ID:', error);
     return null;
   }
 }
 
-/**
- * Update a reproduction event in local database
- * Adds to sync queue for synchronization
- */
-export async function updateReproductionEvent(id: string, data: UpdateReproductionEventData): Promise<void> {
-  // Validate payload before update
-  validateEvenementPayload(data);
-
-  await updateLocalRecord<ReproductionEvent>('evenements', id, data);
-}
-
-/**
- * Soft delete a reproduction event in local database
- * Adds to sync queue for synchronization
- */
-export async function deleteReproductionEvent(id: string): Promise<void> {
-  return softDeleteLocalRecord('evenements', id);
+export async function getActiveGestations(farmId: string): Promise<EvenementReproductif[]> {
+  const evenements = await getReproductionEvents(farmId);
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+  
+  return evenements.filter(e => {
+    const eventDate = new Date(e.date_evenement);
+    const isGestation = e.type_evenement_id === 'Gestation' || e.type_evenement_id === 'GESTATION';
+    return isGestation && eventDate >= thirtyDaysAgo && eventDate <= today;
+  }).slice(0, 5);
 }

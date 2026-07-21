@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   TextInput,
   Image,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -16,147 +17,87 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
-import AppBottomSheet, { BottomSheetOption, AppBottomSheetRef } from '../../../components/AppBottomSheet';
+import AppTab from '../../../components/AppTab';
 import AnimalListItem from '../../../components/list/AnimalListItem';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { authStorage } from '../../../storage/authStorage';
+import { farmStorage } from '../../../storage/farmStorage';
 import { Animal, AnimalFilters } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
-import { getLocalAnimals } from '../../../database/repositories/animalRepository';
-import { fullSync } from '../../../sync/syncService';
-import { syncEvents } from '../../../sync/syncEvents';
+import { useAnimals } from '../../../hooks/useAnimals';
+import { useSync } from '../../../hooks/useSync';
+import { useSyncStatus } from '../../../hooks/useSyncStatus';
+import { Theme } from '../../../config/colors';
+import { deleteAnimal } from '../../../database/repositories/animalRepository';
 
 type CheptelListNavigationProp = StackNavigationProp<CheptelStackParamList, 'CheptelList'>;
 
 const CheptelListScreen = () => {
   const navigation = useNavigation<CheptelListNavigationProp>();
-  const [animals, setAnimals] = useState<Animal[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [syncing, setSyncing] = useState<boolean>(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncSuccess, setSyncSuccess] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeFilterTab, setActiveFilterTab] = useState<string>('all');
   const [selectedSexe, setSelectedSexe] = useState<'male' | 'femelle' | null>(null);
   const [selectedStatut, setSelectedStatut] = useState<string | null>(null);
-  const [page, setPage] = useState<number>(1);
-  const [meta, setMeta] = useState<{ total: number; last_page: number } | null>(null);
-  const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
-  const bottomSheetRef = useRef<AppBottomSheetRef>(null);
+  const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
+
+  // WatermelonDB hooks
+  const { animals: dbAnimals, loading } = useAnimals(farmId || '');
+  const { isSyncing, lastSyncedAt, lastError, manualSync } = useSync({
+    farmId: farmId || '',
+    autoSync: !!farmId, // Only enable auto-sync when farmId is loaded
+    intervalMs: 60000,
+  });
+  const { pendingCount, failedCount } = useSyncStatus(farmId || '');
 
   // Charger la ferme active
   const loadActiveFarm = async () => {
     try {
-      const activeFarm = await authStorage.getItem('active_farm');
-      console.log('Active farm from storage:', activeFarm);
-      if (activeFarm) {
-        const farm = JSON.parse(activeFarm);
-        console.log('Parsed farm:', farm);
+      const farm = await farmStorage.getActiveFarm();
+      if (farm) {
         setFarmId(farm.id);
-      } else {
-        console.log('No active farm found in storage');
-        setError('Aucune ferme active sélectionnée. Veuillez sélectionner une ferme.');
-        setLoading(false);
       }
     } catch (error) {
       console.error('Error loading active farm:', error);
-      setError('Erreur lors du chargement de la ferme active');
-      setLoading(false);
     }
   };
 
-  // Charger les animaux (lecture locale SQLite)
-  const loadAnimals = async (pageNum: number = 1, isRefresh: boolean = false) => {
-    console.log('loadAnimals called with farmId:', farmId, 'pageNum:', pageNum, 'isRefresh:', isRefresh);
-    if (!farmId) {
-      console.log('No farmId, cannot load animals');
-      setError('Aucune ferme active sélectionnée');
-      setLoading(false);
-      return;
+  // Filtrage côté JavaScript
+  const filteredAnimals = dbAnimals.filter((animal) => {
+    // Exclure les animaux morts, vendus ou perdus de l'affichage principal
+    if (['MORT', 'VENDU', 'PERDU'].includes(animal.statut || '')) {
+      return false;
     }
-
-    try {
-      if (isRefresh) {
-        setLoading(true);
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      if (
+        !animal.nom?.toLowerCase().includes(query) &&
+        !animal.numero_identification?.toLowerCase().includes(query)
+      ) {
+        return false;
       }
-      setError(null);
-
-      // Lecture locale depuis SQLite
-      const localAnimals = await getLocalAnimals(farmId);
-      console.log('Local animals loaded:', localAnimals.length);
-
-      // Filtrage côté JavaScript (limitation actuelle: pas de filtres SQL)
-      let filteredAnimals = localAnimals;
-
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        filteredAnimals = filteredAnimals.filter(
-          (animal) =>
-            animal.nom?.toLowerCase().includes(query) ||
-            animal.numero_identification?.toLowerCase().includes(query)
-        );
-      }
-
-      if (selectedSexe) {
-        filteredAnimals = filteredAnimals.filter((animal) => animal.sexe === selectedSexe);
-      }
-
-      if (selectedStatut) {
-        filteredAnimals = filteredAnimals.filter((animal) => animal.statut === selectedStatut);
-      }
-
-      // Pagination côté JavaScript (limitation: pas de pagination SQL)
-      const perPage = 15;
-      const startIndex = (pageNum - 1) * perPage;
-      const paginatedAnimals = filteredAnimals.slice(startIndex, startIndex + perPage);
-
-      if (pageNum === 1) {
-        setAnimals(paginatedAnimals);
-      } else {
-        setAnimals([...animals, ...paginatedAnimals]);
-      }
-
-      setMeta({
-        total: filteredAnimals.length,
-        last_page: Math.ceil(filteredAnimals.length / perPage),
-      });
-      setPage(pageNum);
-    } catch (err: any) {
-      console.error('Error loading animals:', err);
-      setError(err.message || 'Erreur lors du chargement des animaux');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  };
+    if (selectedSexe && animal.sexe !== selectedSexe) {
+      return false;
+    }
+    if (selectedStatut && animal.statut !== selectedStatut) {
+      return false;
+    }
+    if (selectedSpecies && animal.espece?.nom !== selectedSpecies) {
+      return false;
+    }
+    return true;
+  });
 
   // Debounce de la recherche
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-    const timeout = setTimeout(() => {
-      setPage(1);
-      loadAnimals(1, false);
-    }, 300);
-    setSearchTimeout(timeout);
   };
 
   // Pull-to-refresh
   const handleRefresh = () => {
-    setRefreshing(true);
-    setPage(1);
-    loadAnimals(1, true);
-  };
-
-  // Charger plus
-  const handleLoadMore = () => {
-    if (meta && page < meta.last_page && !loading) {
-      loadAnimals(page + 1, false);
-    }
+    manualSync();
   };
 
   // Reset filtres
@@ -164,105 +105,100 @@ const CheptelListScreen = () => {
     setSearchQuery('');
     setSelectedSexe(null);
     setSelectedStatut(null);
-    setPage(1);
-    loadAnimals(1, true);
+    setSelectedSpecies(null);
+    setActiveFilterTab('all');
   };
 
-  // Synchronisation manuelle
-  const handleManualSync = async () => {
-    if (!farmId) {
-      setError('Aucune ferme active sélectionnée');
-      return;
-    }
-
-    try {
-      setSyncing(true);
-      setSyncError(null);
-      setSyncSuccess(false);
-
-      await fullSync(farmId);
-
-      setSyncSuccess(true);
-      // Reload local data after successful sync
-      await loadAnimals(1, true);
-
-      // Hide success message after 3 seconds
-      setTimeout(() => setSyncSuccess(false), 3000);
-    } catch (err: any) {
-      setSyncError(err.message || 'Erreur lors de la synchronisation');
-      // Hide error message after 5 seconds
-      setTimeout(() => setSyncError(null), 5000);
-    } finally {
-      setSyncing(false);
+  // Handle tab change
+  const handleFilterTabChange = (tabId: string) => {
+    setActiveFilterTab(tabId);
+    if (tabId === 'all') {
+      setSelectedSexe(null);
+      setSelectedStatut(null);
+    } else if (tabId === 'sain') {
+      setSelectedSexe(null);
+      setSelectedStatut('SAIN');
+    } else if (tabId === 'malade') {
+      setSelectedSexe(null);
+      setSelectedStatut('MALADE');
+    } else if (tabId === 'traitement') {
+      setSelectedSexe(null);
+      setSelectedStatut('EN_TRAITEMENT');
     }
   };
 
-  // Navigation vers détail
-  const handleAnimalPress = (animal: Animal) => {
-    navigation.navigate('AnimalDetail', { animalId: animal.id });
-  };
-
-  // Options du bottom sheet
-  const bottomSheetOptions: BottomSheetOption[] = [
-    {
-      id: 'achat',
-      label: 'Acheter un animal',
-      icon: 'cart',
-      iconColor: '#30A15E',
-      onPress: () => navigation.navigate('AnimalAchat'),
-    },
-    {
-      id: 'saisie',
-      label: 'Saisie manuelle',
-      icon: 'pencil',
-      iconColor: '#30A15E',
-      onPress: () => navigation.navigate('AnimalForm', {}),
-    },
+  // Tab options
+  const filterTabOptions = [
+    { id: 'all', label: 'Tous', count: dbAnimals.filter(a => !['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')).length },
+    { id: 'sain', label: 'Sain', count: dbAnimals.filter(a => a.statut === 'SAIN').length },
+    { id: 'malade', label: 'Malade', count: dbAnimals.filter(a => a.statut === 'MALADE').length },
+    { id: 'traitement', label: 'Traitement', count: dbAnimals.filter(a => a.statut === 'EN_TRAITEMENT').length },
   ];
 
-  // Navigation vers formulaire création
+  // Navigation vers détail
+  const handleAnimalPress = (animal: any) => {
+    navigation.navigate('AnimalDetail' as any, { animalId: animal.id });
+  };
+
+  // Navigation vers édition
+  const handleEditAnimal = (animal: any) => {
+    navigation.navigate('AnimalForm' as any, { animalId: animal.id });
+  };
+
+  // Suppression d'animal
+  const handleDeleteAnimal = (animal: any) => {
+    Alert.alert(
+      'Supprimer l\'animal',
+      `Voulez-vous vraiment supprimer "${animal.nom}" ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAnimal(animal.id);
+              console.log('[CheptelListScreen] Animal deleted successfully:', animal.id);
+              Alert.alert('Succès', 'Animal supprimé localement. La synchronisation se fera automatiquement.');
+            } catch (error) {
+              console.error('[CheptelListScreen] Error deleting animal:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer cet animal');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Navigation vers formulaire de naissance
   const handleAddAnimal = () => {
-    bottomSheetRef.current?.present();
+    navigation.navigate('AnimalNaissance' as any);
+  };
+
+  // Calculer le nombre d'animaux dans l'historique
+  const historyCount = dbAnimals.filter(a => ['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')).length;
+
+  // Navigation vers historique
+  const handleHistoryPress = () => {
+    navigation.navigate('AnimalHistory' as any);
   };
 
   // Charger au montage
-  useEffect(() => {
-    loadActiveFarm();
-  }, []);
-
-  // Recharger quand farmId change
-  useEffect(() => {
-    if (farmId) {
-      loadAnimals(1, true);
-    }
-  }, [farmId]);
-
-  // Recharger quand l'écran reçoit le focus
   useFocusEffect(
     useCallback(() => {
-      if (farmId) {
-        loadAnimals(1, true);
-      }
-    }, [farmId])
+      loadActiveFarm();
+    }, [])
   );
-
-  // Subscribe to sync events to refresh data when sync completes
-  useEffect(() => {
-    const unsubscribeFull = syncEvents.subscribe('sync:full:completed', () => {
-      console.log('[CheptelListScreen] Sync full completed event received, reloading animals');
-      if (farmId) {
-        loadAnimals(1, true);
-      }
-    });
-
-    return () => {
-      unsubscribeFull();
-    };
-  }, [farmId]);
 
   // Render item animal using reusable component
   const renderAnimal = ({ item }: { item: Animal }) => (
-    <AnimalListItem animal={item} onPress={handleAnimalPress} />
+    <AnimalListItem 
+      animal={item} 
+      onPress={handleAnimalPress} 
+      onEdit={handleEditAnimal}
+      onDelete={handleDeleteAnimal}
+      healthStatus={item.etat_sante} 
+    />
   );
 
   // Render empty state
@@ -275,218 +211,125 @@ const CheptelListScreen = () => {
       <AppText style={styles.emptyText} color="#757575">
         Commencez par ajouter votre premier animal
       </AppText>
-      <AppButton
-        title="Ajouter un animal"
-        onPress={handleAddAnimal}
-        style={styles.emptyButton}
-      />
-    </View>
-  );
-
-  // Render error state
-  const renderErrorState = () => (
-    <View style={styles.errorState}>
-      <MaterialCommunityIcons name="alert-circle" size={64} color="#D32F2F" />
-      <AppText style={styles.errorTitle} fontWeight="bold">
-        Erreur de chargement
-      </AppText>
-      <AppText style={styles.errorText} color="#757575">
-        {error}
-      </AppText>
-      <AppButton
-        title="Réessayer"
-        onPress={() => loadAnimals(1, true)}
-        style={styles.errorButton}
-      />
+     
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
       <AppHeader
-        title="Cheptel"
-        subtitle="Gérez vos animaux"
-        showBackground={true}
-        showMenuButton={true}
+        showBackground={false}
+        showMenuButton
         onMenuPress={() => (navigation as any).openDrawer()}
-      />
+        showRightButton
+        rightButtonIcon="plus"
+        onRightButtonPress={handleAddAnimal}
+        style={styles.header}
+      >
+        {/* Bouton historique à côté du bouton plus */}
+        <TouchableOpacity 
+          style={styles.historyButton} 
+          onPress={handleHistoryPress}
+        >
+          <MaterialCommunityIcons name="clock-outline" size={24} color="#FFFFFF" />
+          {historyCount > 0 && (
+            <View style={styles.historyBadge}>
+              <AppText style={styles.historyBadgeText} color="#FFFFFF" fontSize={10} fontWeight="bold">
+                {historyCount > 9 ? '9+' : historyCount}
+              </AppText>
+            </View>
+          )}
+        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <AppText style={styles.headerTitle}>Mon Cheptel</AppText>
+          <View style={styles.searchContainer}>
+            <MaterialCommunityIcons name="magnify" size={20} color={Theme.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Rechercher un animal..."
+              placeholderTextColor={Theme.textSecondary}
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+            />
+            {searchQuery && (
+              <TouchableOpacity onPress={() => handleSearchChange('')}>
+                <MaterialCommunityIcons name="close-circle" size={20} color={Theme.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        
+      </AppHeader>
 
       <View style={styles.content}>
-        {/* Sync status banners */}
-        {syncSuccess && (
-          <View style={styles.syncBannerSuccess}>
-            <MaterialCommunityIcons name="check-circle" size={20} color="#2E7D32" />
-            <AppText style={styles.syncBannerText} color="#2E7D32" fontSize={14}>
-              Synchronisation réussie
-            </AppText>
-          </View>
-        )}
-        {syncError && (
+        {/* Sync status banners - derived from actual sync_status of records */}
+        {failedCount > 0 && (
           <View style={styles.syncBannerError}>
             <MaterialCommunityIcons name="alert-circle" size={20} color="#D32F2F" />
             <AppText style={styles.syncBannerText} color="#D32F2F" fontSize={14}>
-              {syncError}
+              {failedCount} enregistrement(s) en échec de synchronisation
+            </AppText>
+          </View>
+        )}
+        {pendingCount > 0 && failedCount === 0 && (
+          <View style={styles.syncBannerPending}>
+            <MaterialCommunityIcons name="clock-outline" size={20} color="#F57C00" />
+            <AppText style={styles.syncBannerText} color="#F57C00" fontSize={14}>
+              {pendingCount} enregistrement(s) en attente de synchronisation
+            </AppText>
+          </View>
+        )}
+        {pendingCount === 0 && failedCount === 0 && lastSyncedAt && (
+          <View style={styles.syncBannerSuccess}>
+            <MaterialCommunityIcons name="check-circle" size={20} color="#2E7D32" />
+            <AppText style={styles.syncBannerText} color="#2E7D32" fontSize={14}>
+              Tout est à jour
+            </AppText>
+          </View>
+        )}
+        {lastError && pendingCount === 0 && failedCount === 0 && (
+          <View style={styles.syncBannerError}>
+            <MaterialCommunityIcons name="alert-circle" size={20} color="#D32F2F" />
+            <AppText style={styles.syncBannerText} color="#D32F2F" fontSize={14}>
+              {lastError}
             </AppText>
           </View>
         )}
 
-        {/* Barre de recherche et sync button */}
-        <View style={styles.searchContainer}>
-          <MaterialCommunityIcons name="magnify" size={20} color="#757575" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Rechercher un animal..."
-            placeholderTextColor="#BDBDBD"
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-          />
-          {searchQuery && (
-            <TouchableOpacity onPress={() => handleSearchChange('')}>
-              <MaterialCommunityIcons name="close-circle" size={20} color="#BDBDBD" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.syncButton}
-            onPress={handleManualSync}
-            disabled={syncing}
-          >
-            <MaterialCommunityIcons
-              name={syncing ? 'loading' : 'sync'}
-              size={20}
-              color={syncing ? '#BDBDBD' : '#2E7D32'}
-            />
-          </TouchableOpacity>
-        </View>
+        
 
-        {/* Filtres */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filtersContainer}
-          contentContainerStyle={styles.filtersContent}
-        >
-          <TouchableOpacity
-            style={[styles.filterChip, selectedSexe === 'male' && styles.filterChipActive]}
-            onPress={() => {
-              setSelectedSexe(selectedSexe === 'male' ? null : 'male');
-              setPage(1);
-              loadAnimals(1, false);
-            }}
-          >
-            <MaterialCommunityIcons
-              name="gender-male"
-              size={14}
-              color={selectedSexe === 'male' ? '#fff' : '#757575'}
-              style={styles.filterChipIcon}
-            />
-            <AppText
-              style={[styles.filterChipText, selectedSexe === 'male' && styles.filterChipTextActive]}
-              fontSize={12}
-            >
-              Mâle
-            </AppText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.filterChip, selectedSexe === 'femelle' && styles.filterChipActive]}
-            onPress={() => {
-              setSelectedSexe(selectedSexe === 'femelle' ? null : 'femelle');
-              setPage(1);
-              loadAnimals(1, false);
-            }}
-          >
-            <MaterialCommunityIcons
-              name="gender-female"
-              size={14}
-              color={selectedSexe === 'femelle' ? '#fff' : '#757575'}
-              style={styles.filterChipIcon}
-            />
-            <AppText
-              style={[styles.filterChipText, selectedSexe === 'femelle' && styles.filterChipTextActive]}
-              fontSize={12}
-            >
-              Femelle
-            </AppText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.filterChip, selectedStatut === 'ACTIF' && styles.filterChipActive]}
-            onPress={() => {
-              setSelectedStatut(selectedStatut === 'ACTIF' ? null : 'ACTIF');
-              setPage(1);
-              loadAnimals(1, false);
-            }}
-          >
-            <MaterialCommunityIcons
-              name="check-circle"
-              size={14}
-              color={selectedStatut === 'ACTIF' ? '#fff' : '#757575'}
-              style={styles.filterChipIcon}
-            />
-            <AppText
-              style={[styles.filterChipText, selectedStatut === 'ACTIF' && styles.filterChipTextActive]}
-              fontSize={12}
-            >
-              Actif
-            </AppText>
-          </TouchableOpacity>
-          {(selectedSexe || selectedStatut) && (
-            <TouchableOpacity
-              style={[styles.filterChip, styles.filterChipReset]}
-              onPress={resetFilters}
-            >
-              <AppText style={styles.filterChipTextReset} fontSize={12}>
-                Réinitialiser
-              </AppText>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
+        {/* Filtres avec AppTab */}
+        <AppTab
+          options={filterTabOptions}
+          activeTab={activeFilterTab}
+          onTabChange={handleFilterTabChange}
+          textStyle={styles.tabText}
+          tabStyle={styles.tabstyle}
+        />
 
         {/* Compteur */}
-        {meta && (
-          <AppText style={styles.counter} color="#757575">
-            {meta.total} animal{meta.total > 1 ? 'x' : ''}
-          </AppText>
-        )}
+        <AppText style={styles.counter} color="#757575">
+          {filteredAnimals.length} animal{filteredAnimals.length > 1 ? 'x' : ''}
+        </AppText>
 
         {/* Liste */}
-        {loading && page === 1 ? (
+        {loading ? (
           <View style={styles.loadingContainer}>
             <AppText color="#757575">Chargement...</AppText>
           </View>
-        ) : error ? (
-          renderErrorState()
-        ) : animals.length === 0 ? (
+        ) : filteredAnimals.length === 0 ? (
           renderEmptyState()
         ) : (
           <FlatList
-            data={animals}
+            data={filteredAnimals as any[]}
             renderItem={renderAnimal}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2E7D32" />
-            }
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={
-              page < (meta?.last_page || 1) ? (
-                <View style={styles.loadingMore}>
-                  <AppText color="#757575">Chargement...</AppText>
-                </View>
-              ) : null
+              <RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} tintColor="#2E7D32" />
             }
           />
         )}
-
-        {/* Bottom Sheet */}
-        <AppBottomSheet
-          ref={bottomSheetRef}
-          options={bottomSheetOptions}
-        />
-
-        {/* FAB */}
-        <TouchableOpacity style={styles.fab} onPress={handleAddAnimal}>
-          <MaterialCommunityIcons name="plus" size={28} color="#fff" />
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -495,7 +338,22 @@ const CheptelListScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: Theme.backgroundLight,
+  },
+  header: {
+    backgroundColor: Theme.primary,
+    justifyContent:'center',
+    alignItems:'center',
+    height:200
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 12,
   },
   content: {
     flex: 1,
@@ -503,20 +361,43 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     flexDirection: 'row',
+    width:'80%',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: Theme.backgroundLight,
+    borderRadius: 60,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    marginBottom:10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   searchIcon: {
     marginRight: 12,
   },
   searchInput: {
     flex: 1,
+    height:40,
     fontSize: 16,
-    color: '#212121',
+    color: Theme.textPrimary,
+  },
+  syncButtonContainer: {
+    alignItems: 'flex-end',
+    marginBottom: 16,
+  },
+  syncButton: {
+    backgroundColor: Theme.white,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   filtersContainer: {
     marginBottom: 16,
@@ -525,7 +406,7 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   filterChip: {
-    backgroundColor: '#fff',
+    backgroundColor: Theme.white,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -534,15 +415,15 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
   },
   filterChipActive: {
-    backgroundColor: '#2E7D32',
-    borderColor: '#2E7D32',
+    backgroundColor: Theme.primary,
+    borderColor: Theme.primary,
   },
   filterChipReset: {
     backgroundColor: '#FFEBEE',
     borderColor: '#D32F2F',
   },
   filterChipText: {
-    color: '#757575',
+    color: Theme.textSecondary,
     fontWeight: '500',
   },
   filterChipIcon: {
@@ -553,6 +434,13 @@ const styles = StyleSheet.create({
   },
   filterChipTextReset: {
     color: '#D32F2F',
+  },
+  tabText: {
+    fontSize: 12,
+  },
+  tabstyle: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   counter: {
     fontSize: 14,
@@ -578,7 +466,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 18,
-    color: '#212121',
+    color: Theme.textPrimary,
     marginTop: 16,
     marginBottom: 8,
   },
@@ -597,7 +485,7 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     fontSize: 18,
-    color: '#212121',
+    color: Theme.textPrimary,
     marginTop: 16,
     marginBottom: 8,
   },
@@ -608,6 +496,15 @@ const styles = StyleSheet.create({
   },
   errorButton: {
     paddingHorizontal: 32,
+  },
+  syncBannerPending: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   syncBannerSuccess: {
     flexDirection: 'row',
@@ -630,25 +527,36 @@ const styles = StyleSheet.create({
   syncBannerText: {
     marginLeft: 8,
   },
-  syncButton: {
-    marginLeft: 12,
-    padding: 8,
-  },
-  fab: {
+  historyButton: {
     position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#2E7D32',
+    right: 40,
+    top: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    zIndex: 10,
+  },
+  historyBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#FF6B35',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: Theme.primary,
+  },
+  historyBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

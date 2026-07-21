@@ -86,4 +86,14 @@ export const authStorage = {
       throw error;
     }
   },
+
+  async getUserId(): Promise<string> {
+    try {
+      const user = await this.getUser();
+      return user?.id || 'system_user';
+    } catch (error) {
+      console.error('Error getting user ID:', error);
+      return 'system_user';
+    }
+  },
 };

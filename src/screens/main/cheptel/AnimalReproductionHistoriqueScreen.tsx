@@ -14,7 +14,7 @@ import AppHeader from '../../../components/AppHeader';
 import AppEmptyState from '../../../components/AppEmptyState';
 import EventDetailModal, { EventDetailModalRef } from '../../../components/EventDetailModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import reproductionService from '../../../services/reproduction.service';
+import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
 import { ReproductionHistoriqueAnimal } from '../../../types/reproduction.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 
@@ -36,14 +36,12 @@ const AnimalReproductionHistoriqueScreen = () => {
     try {
       setLoading(true);
       setError(null);
-      const { getReproductionEvents } = await import('../../../database/repositories/reproductionRepository');
       const farm = await (await import('../../../storage/farmStorage')).farmStorage.getActiveFarm();
       if (!farm) {
         throw new Error('Aucune ferme active');
       }
-      const events = await getReproductionEvents(farm.id);
-      const animalEvents = events.filter(e => e.animal_id === animalId);
-      setHistorique({ evenements_reproductifs: animalEvents } as any);
+      const events = await getReproductionEvents(farm.id, animalId);
+      setHistorique({ evenements_reproductifs: events } as any);
     } catch (error: any) {
       console.error('Error loading reproduction history:', error);
       setError(error.message || 'Erreur lors du chargement de l\'historique');

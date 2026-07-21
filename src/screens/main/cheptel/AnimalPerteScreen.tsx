@@ -13,16 +13,14 @@ import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import AppTextInput from '../../../components/AppTextInput';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
-import mouvementService from '../../../services/mouvement.service';
-import animalService from '../../../services/animal.service';
 import { PerteRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { createLocalRecord } from '../../../database/repositories/baseRepository';
-import { updateAnimal } from '../../../database/repositories/animalRepository';
-import { clearFarmCache } from '../../../database/repositories/cacheRepository';
+import { updateAnimal, getLocalAnimalById } from '../../../database/repositories/animalRepository';
 import { authStorage } from '../../../storage/authStorage';
 import { farmStorage } from '../../../storage/farmStorage';
+import { TypeEvenementIds } from '../../../constants/typeEvenements';
 
 type AnimalPerteRouteProp = RouteProp<CheptelStackParamList, 'AnimalPerte'>;
 type AnimalPerteNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalPerte'>;
@@ -52,10 +50,11 @@ const AnimalPerteScreen = () => {
     const loadAnimalContext = async () => {
       try {
         setLoadingContext(true);
-        const animal = await animalService.getAnimal(animalId);
+        const animal = await getLocalAnimalById(animalId);
         setAnimalContext(animal);
       } catch (error: any) {
-        setSubmitError(error.message || 'Impossible de charger les détails de l’animal');
+        console.error('[AUDIT] Perte - Load animal error:', error);
+        setSubmitError(error.message || 'Impossible de charger les détails de l\'animal');
       } finally {
         setLoadingContext(false);
       }
@@ -82,6 +81,7 @@ const AnimalPerteScreen = () => {
 
       const farm = await farmStorage.getActiveFarm();
       if (!farm) {
+        console.error('[AUDIT] Perte - No active farm');
         setSubmitError('Aucune ferme active sélectionnée');
         return;
       }
@@ -96,14 +96,9 @@ const AnimalPerteScreen = () => {
 
       // Create event locally for offline-first pattern
       const { createLocalRecord } = await import('../../../database/repositories/baseRepository');
-      const { getTypeEvenementIdByName } = await import('../../../database/repositories/typeEvenementRepository');
       
-      // Get the perte type_evenement_id using the shared function
-      const typeEvenementId = await getTypeEvenementIdByName('Perte');
-      if (!typeEvenementId) {
-        setSubmitError("Type d'événement Perte introuvable en local. Synchronisation requise.");
-        return;
-      }
+      // Use constant type_evenement_id for perte
+      const typeEvenementId = TypeEvenementIds.PERTE;
 
       await createLocalRecord('evenements', {
         farm_id: farm.id,
@@ -112,7 +107,7 @@ const AnimalPerteScreen = () => {
         date_evenement: datePerte!.toISOString().split('T')[0],
         description: formData.cause || 'Perte',
         categorie: 'MOUVEMENT',
-        statut_avant: animalContext?.statut || 'ACTIF',
+        statut_avant: animalContext?.statut || 'SAIN',
         statut_apres: 'PERDU',
         last_modified_by: userId,
       });
@@ -120,13 +115,11 @@ const AnimalPerteScreen = () => {
       // Update animal status locally (optimistic update)
       await updateAnimal(animalId, { statut: 'PERDU' });
 
-      // Invalidate cache for this farm to reflect updated animal status
-      await clearFarmCache(farm.id);
-
       Alert.alert('Succès', 'Perte déclarée', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (err: any) {
+      console.error('[AUDIT] Perte - Error:', err);
       setSubmitError(err.message || 'Erreur lors de l\'enregistrement');
     } finally {
       setSubmitting(false);

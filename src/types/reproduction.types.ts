@@ -1,6 +1,7 @@
 export interface ReproductionEventType {
   id: string;
   nom_type: string;
+  categorie: string;
   description?: string;
 }
 
@@ -21,10 +22,11 @@ export interface ReproductionEvent {
   statut?: string;
   description?: string;
   cout?: number;
+  metadonnees?: string;
   // Champs de synchronisation
   sync_status: 'pending' | 'synced' | 'conflict';
   version: number;
-  deleted_at: string | null;
+  deleted_at?: string | null;
   last_modified_by?: string;
 }
 

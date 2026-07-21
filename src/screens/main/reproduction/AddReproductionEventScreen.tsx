@@ -1,58 +1,71 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Modalize } from 'react-native-modalize';
-import AppHeader from '../../../components/AppHeader';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
+import AppHeader from '../../../components/AppHeader';
+import AppTab from '../../../components/AppTab';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import AppTextInput from '../../../components/AppTextInput';
+import AnimalPicker, { AnimalPickerRef } from '../../../components/AnimalPicker';
 import { farmStorage } from '../../../storage/farmStorage';
 import { authStorage } from '../../../storage/authStorage';
 import { ReproductionEventType } from '../../../types/reproduction.types';
 import { getLocalCategories } from '../../../database/repositories/categorieRepository';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Theme } from '../../../config/colors';
+import { getReproductionEventColor } from '../../../config/colors';
+import { validerEvenementReproduction, Animal, Evenement } from '../../../utils/reproductionValidation';
+import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
 
-// Configuration des types reproductifs avec icônes et couleurs
-const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
-  'Chaleur': { icon: 'fire', color: '#ff9800' },
-  'Saillie': { icon: 'heart-pulse', color: '#e91e63' },
-  'Gestation confirmée': { icon: 'human-female', color: '#9c27b0' },
-  'Mise bas': { icon: 'baby-face-outline', color: '#4caf50' },
-};
+const TABS_CONFIG = [
+  { id: 'saillie', label: 'Saillie' },
+  { id: 'gestation', label: 'Gestation' },
+  { id: 'misebas', label: 'Mise bas' },
+];
 
 const AddReproductionEventScreen = () => {
   const navigation = useNavigation();
-  const [females, setFemales] = useState<any[]>([]);
+  const femaleSailliePickerRef = useRef<AnimalPickerRef>(null);
+  const malePickerRef = useRef<AnimalPickerRef>(null);
+  const femaleGestationPickerRef = useRef<AnimalPickerRef>(null);
+  const femaleMiseBasPickerRef = useRef<AnimalPickerRef>(null);
   const [loading, setLoading] = useState(true);
   const [eventTypes, setEventTypes] = useState<ReproductionEventType[]>([]);
-  const [selectedFemale, setSelectedFemale] = useState<any>(null);
-  const [selectedType, setSelectedType] = useState<ReproductionEventType | null>(null);
-  const [dateEvent, setDateEvent] = useState<Date | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<'saillie' | 'gestation' | 'misebas'>('saillie');
   const [description, setDescription] = useState('');
   const [cout, setCout] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
-  const bottomSheetRef = useRef<Modalize>(null);
+  const [availableFemales, setAvailableFemales] = useState<any[]>([]);
+  const [availableMales, setAvailableMales] = useState<any[]>([]);
+  const [animalEvents, setAnimalEvents] = useState<Evenement[]>([]);
 
-  const filteredFemales = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return females;
-    return females.filter((female: any) => 
-      `${female.nom || ''} ${female.numero_identification || ''}`.toLowerCase().includes(query)
-    );
-  }, [females, search]);
+  // Saillie states
+  const [selectedFemaleSaillie, setSelectedFemaleSaillie] = useState<any>(null);
+  const [selectedMale, setSelectedMale] = useState<any>(null);
+  const [dateSaillie, setDateSaillie] = useState<Date | undefined>(undefined);
+  const [calculatedBirthDate, setCalculatedBirthDate] = useState<Date | null>(null);
+  const [filteredMales, setFilteredMales] = useState<any[]>([]);
+  
+  // Gestation states
+  const [selectedFemaleGestation, setSelectedFemaleGestation] = useState<any>(null);
+  const [dateConfirmation, setDateConfirmation] = useState<Date | undefined>(undefined);
+  const [estimatedBirthDate, setEstimatedBirthDate] = useState<Date | null>(null);
+  
+  // Mise bas states
+  const [selectedFemaleMiseBas, setSelectedFemaleMiseBas] = useState<any>(null);
+  const [dateMiseBas, setDateMiseBas] = useState<Date | undefined>(undefined);
+  const [nombreNouveauNes, setNombreNouveauNes] = useState('');
 
   const loadData = async () => {
     try {
@@ -66,27 +79,39 @@ const AddReproductionEventScreen = () => {
       
       // Use local repositories for offline-first pattern
       const { getLocalTypeEvenements } = await import('../../../database/repositories/typeEvenementRepository');
-      const { getLocalAnimals } = await import('../../../database/repositories/animalRepository');
-      
-      const [types, femalesData, categoriesData] = await Promise.all([
+      const { getLocalActiveFemales, getLocalActiveMales } = await import('../../../database/repositories/animalRepository');
+
+      const [types, categoriesData, females, males] = await Promise.all([
         getLocalTypeEvenements(),
-        getLocalAnimals(farm.id),
         getLocalCategories(),
+        getLocalActiveFemales(farm.id),
+        getLocalActiveMales(farm.id),
       ]);
-      
-      console.log('[AddReproductionEventScreen] Loaded type_evenements:', types.length);
-      console.log('[AddReproductionEventScreen] All types:', types.map((t: any) => t.nom_type));
-      
+
       // Filtrer les types reproductifs uniquement
-      const reproductionTypes = types.filter((type: any) => 
+      const reproductionTypes = types.filter((type: any) =>
         type.categorie === 'REPRODUCTION'
       );
-      
-      console.log('[AddReproductionEventScreen] Filtered reproduction types:', reproductionTypes.map((t: any) => t.nom_type));
-      
+
       setEventTypes(reproductionTypes);
-      setFemales(femalesData.filter((a: any) => a.sexe === 'femelle' && a.statut === 'ACTIF'));
       setCategories(categoriesData);
+
+      console.log('[AddReproductionEvent] Available females:', females.length);
+      console.log('[AddReproductionEvent] Available males:', males.length);
+      females.slice(0, 3).forEach((f: any) => {
+        console.log('[AddReproductionEvent] Female details:', {
+          id: f.id,
+          nom: f.nom,
+          especeNom: f.espece?.nom,
+          especeObj: f.espece,
+          allKeys: Object.keys(f),
+          _raw: f._raw
+        });
+      });
+      console.log('[AddReproductionEvent] Males sample:', males.slice(0, 3).map(m => ({ id: m.id, nom: m.nom, espece: m.espece?.nom })));
+
+      setAvailableFemales(females);
+      setAvailableMales(males);
     } catch (e: any) {
       console.error('Error loading data:', e);
       setError(e.message || 'Impossible de charger les données');
@@ -95,25 +120,147 @@ const AddReproductionEventScreen = () => {
     }
   };
 
+  const calculateBirthDate = () => {
+    if (!dateSaillie || !selectedFemaleSaillie) return;
+    const gestationDays = selectedFemaleSaillie.espece?.nom?.toLowerCase().includes('bovin') ? 285 : 150;
+    const birthDate = new Date(dateSaillie);
+    birthDate.setDate(birthDate.getDate() + gestationDays);
+    setCalculatedBirthDate(birthDate);
+  };
+
+  // Filter males by species when a female is selected for saillie
+  useEffect(() => {
+    const { filterAnimalsBySpecies } = require('../../../utils/animalUtils');
+
+    console.log('[AddReproductionEvent] Selected female:', selectedFemaleSaillie);
+    console.log('[AddReproductionEvent] Female species:', selectedFemaleSaillie?.espece);
+    console.log('[AddReproductionEvent] Available males:', availableMales.length);
+
+    if (selectedFemaleSaillie && selectedFemaleSaillie.espece?.nom) {
+      const femaleSpecies = selectedFemaleSaillie.espece.nom;
+      const malesOfSameSpecies = filterAnimalsBySpecies(availableMales, femaleSpecies);
+      setFilteredMales(malesOfSameSpecies);
+      console.log('[AddReproductionEvent] Filtering males by species:', femaleSpecies, '=>', malesOfSameSpecies.length, 'males');
+    } else {
+      setFilteredMales(availableMales);
+    }
+  }, [selectedFemaleSaillie, availableMales]);
+
+  const calculateEstimatedBirthDate = () => {
+    if (!dateConfirmation || !selectedFemaleGestation) return;
+    const gestationDays = selectedFemaleGestation.espece?.nom?.toLowerCase().includes('bovin') ? 285 : 150;
+    const birthDate = new Date(dateConfirmation);
+    birthDate.setDate(birthDate.getDate() + gestationDays);
+    setEstimatedBirthDate(birthDate);
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const getSelectedFemale = () => {
+    if (activeTab === 'saillie') return selectedFemaleSaillie;
+    if (activeTab === 'gestation') return selectedFemaleGestation;
+    if (activeTab === 'misebas') return selectedFemaleMiseBas;
+    return null;
+  };
+
+  const loadAnimalEvents = async (animalId: string) => {
+    try {
+      const farm = await farmStorage.getActiveFarm();
+      if (!farm) return;
+
+      const events = await getReproductionEvents(farm.id, animalId);
+      
+      // Convertir les événements au format attendu par les validations
+      const formattedEvents: Evenement[] = events.map(e => ({
+        id: e.id,
+        type_nom: e.type_evenement_id,
+        date_evenement: e.date_evenement,
+        statut: null, // Le statut n'est pas stocké dans EvenementReproductif
+        date_fin: null,
+      }));
+
+      setAnimalEvents(formattedEvents);
+    } catch (error) {
+      console.error('[AddReproductionEvent] Error loading animal events:', error);
+    }
+  };
+
   useEffect(() => {
     void loadData();
   }, []);
 
-  const handleFemalePress = (female: any) => {
-    setSelectedFemale(female);
-    setSelectedType(null);
-    setShowForm(false);
-    bottomSheetRef.current?.open();
-  };
+  // Charger les événements quand une femelle est sélectionnée pour la saillie
+  useEffect(() => {
+    if (selectedFemaleSaillie?.id) {
+      void loadAnimalEvents(selectedFemaleSaillie.id);
+    }
+  }, [selectedFemaleSaillie]);
 
-  const handleTypePress = (type: ReproductionEventType) => {
-    setSelectedType(type);
-    setShowForm(true);
-  };
+  // Charger les événements quand une femelle est sélectionnée pour la gestation
+  useEffect(() => {
+    if (selectedFemaleGestation?.id) {
+      void loadAnimalEvents(selectedFemaleGestation.id);
+    }
+  }, [selectedFemaleGestation]);
+
+  // Charger les événements quand une femelle est sélectionnée pour la mise bas
+  useEffect(() => {
+    if (selectedFemaleMiseBas?.id) {
+      void loadAnimalEvents(selectedFemaleMiseBas.id);
+    }
+  }, [selectedFemaleMiseBas]);
 
   const handleSubmit = async () => {
-    if (!selectedFemale || !selectedType || !dateEvent) {
+    const selectedFemale = getSelectedFemale();
+    
+    // Validation selon onglet
+    if (activeTab === 'saillie' && (!selectedFemaleSaillie || !selectedMale || !dateSaillie)) {
       setError('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+    if (activeTab === 'gestation' && (!selectedFemaleGestation || !dateConfirmation)) {
+      setError('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+    if (activeTab === 'misebas' && (!selectedFemaleMiseBas || !dateMiseBas)) {
+      setError('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+
+    // Validation backend pour éviter les rejets lors du sync
+    const typeMap = {
+      saillie: 'Saillie',
+      gestation: 'Gestation',
+      misebas: 'Mise bas',
+    };
+    const typeName = typeMap[activeTab];
+    
+    // Convertir l'animal au format attendu par les validations
+    const animalForValidation: Animal = {
+      id: selectedFemale.id,
+      sexe: selectedFemale.sexe,
+      date_naissance: selectedFemale.date_naissance,
+      espece_id: selectedFemale.espece_id,
+    };
+
+    // Déterminer la date selon l'onglet
+    let eventDate: Date;
+    if (activeTab === 'saillie') eventDate = dateSaillie!;
+    else if (activeTab === 'gestation') eventDate = dateConfirmation!;
+    else eventDate = dateMiseBas!;
+
+    const validation = validerEvenementReproduction(
+      typeName,
+      animalForValidation,
+      undefined, // especeParametres - non disponible localement pour l'instant
+      animalEvents,
+      eventDate.toISOString().split('T')[0]
+    );
+
+    if (!validation.valide) {
+      setError(validation.erreur || 'Erreur de validation');
       return;
     }
 
@@ -123,51 +270,52 @@ const AddReproductionEventScreen = () => {
       
       const farm = await farmStorage.getActiveFarm();
       if (!farm) {
+        console.error('[AUDIT] Reproduction - No active farm');
         throw new Error('Aucune ferme active');
+      }
+      
+      const eventType = eventTypes.find(t => t.nom_type === typeName);
+      
+      if (!eventType) {
+        console.error('[AUDIT] Reproduction - Event type not found:', typeName);
+        throw new Error('Type d\'événement non trouvé');
       }
       
       // Use local repository for offline-first pattern
       const { createReproductionEvent } = await import('../../../database/repositories/reproductionRepository');
+
+      // Prepare metadata for saillie events (includes male_id)
+      const metadata = activeTab === 'saillie' && selectedMale
+        ? JSON.stringify({ male_id: selectedMale.id })
+        : undefined;
+
       const eventId = await createReproductionEvent({
         farm_id: farm.id,
         animal_id: selectedFemale.id,
-        type_evenement_id: selectedType.id,
-        date_evenement: dateEvent.toISOString().split('T')[0],
+        type_evenement_id: eventType.id,
+        date_evenement: eventDate.toISOString().split('T')[0],
+        categorie: eventType.categorie,
         description: description || undefined,
         cout: cout ? Number(cout) : undefined,
+        metadonnees: metadata,
       });
 
-      // Create transaction if cost > 0 (offline-first support)
-      if (cout && Number(cout) > 0) {
-        const user = await authStorage.getUser();
-        const userId = user?.id;
-
-        // Get categorieId for FRAIS_REPRODUCTION from loaded categories
-        const fraisReproductionCategory = categories.find(
-          (cat: any) => cat.nom_categorie === 'FRAIS_REPRODUCTION'
-        );
-        const categorieId = fraisReproductionCategory?.id;
-
-        const { creerTransactionDepuisEvenement } = await import('../../../services/evenementTransactionService');
-        await creerTransactionDepuisEvenement({
-          evenementId: eventId,
-          farmId: farm.id,
-          animalId: selectedFemale.id,
-          cout: Number(cout),
-          dateEvenement: dateEvent.toISOString(),
-          categorieId: categorieId,
-          userId: userId,
-        });
-      }
+      // Note: La transaction associée sera créée par le backend lors du sync
+      // pour éviter la duplication de logique métier côté mobile
 
       // Reset form
       setDescription('');
       setCout('');
-      setDateEvent(undefined);
-      setSelectedFemale(null);
-      setSelectedType(null);
-      setShowForm(false);
-      bottomSheetRef.current?.close();
+      setDateSaillie(undefined);
+      setDateConfirmation(undefined);
+      setDateMiseBas(undefined);
+      setSelectedFemaleSaillie(null);
+      setSelectedFemaleGestation(null);
+      setSelectedFemaleMiseBas(null);
+      setSelectedMale(null);
+      setNombreNouveauNes('');
+      setCalculatedBirthDate(null);
+      setEstimatedBirthDate(null);
 
       // Navigate to Reproduction tab using reset to ensure proper navigation
       (navigation as any).reset({
@@ -175,135 +323,153 @@ const AddReproductionEventScreen = () => {
         routes: [{ name: 'MainTabs' as never, params: { screen: 'Reproduction' as never } as never }],
       });
     } catch (e: any) {
+      console.error('[AUDIT] Reproduction - Error:', e);
       setError(e.message || 'Échec de l\'enregistrement');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleBottomSheetClose = () => {
-    setSelectedFemale(null);
-    setSelectedType(null);
-    setShowForm(false);
-    setDescription('');
-    setCout('');
-    setDateEvent(undefined);
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader 
-        title="Ajouter événement" 
-        subtitle="Sélectionnez une femelle" 
-        showBackground 
-        showBackButton 
-        onBackPress={() => navigation.goBack()} 
+      <AppHeader
+        showBackground={false}
+        title="Événement Reproductif"
+        subtitle="Saillie · Gestation · Mise bas"
+        showBackButton
+        onBackPress={() => navigation.goBack()}
+        style={styles.header}
       />
-      <View style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
         
-        <View style={styles.searchBar}>
-          <MaterialCommunityIcons name="magnify" size={20} color="#757575" />
-          <TextInput 
-            value={search} 
-            onChangeText={setSearch} 
-            placeholder="Rechercher une femelle" 
-            style={styles.searchInput} 
-          />
-        </View>
+        <AppTab
+          options={TABS_CONFIG}
+          activeTab={activeTab}
+          onTabChange={(tabId) => setActiveTab(tabId as any)}
+        />
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2E7D32" />
+            <ActivityIndicator size="large" color={Theme.primary} />
           </View>
         ) : (
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            {filteredFemales.length === 0 ? (
-              <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="cow" size={48} color="#BDBDBD" />
-                <AppText style={styles.emptyText} color="#757575">Aucune femelle trouvée</AppText>
-              </View>
-            ) : (
-              filteredFemales.map((female) => (
-                <TouchableOpacity
-                  key={female.id}
-                  style={styles.femaleCard}
-                  onPress={() => handleFemalePress(female)}
+          <>
+            {/* Formulaire Saillie */}
+            {activeTab === 'saillie' && (
+              <View style={styles.formSection}>
+                <AppText style={styles.label}>Femelle *</AppText>
+                <TouchableOpacity 
+                  onPress={() => femaleSailliePickerRef.current?.present()}
+                  activeOpacity={0.7}
+                  style={styles.input}
                 >
-                  <View style={styles.femaleMain}>
-                    <MaterialCommunityIcons name="cow" size={24} color="#2E7D32" />
-                    <View style={styles.femaleInfo}>
-                      <AppText style={styles.femaleName}>{female.nom || 'Sans nom'}</AppText>
-                      <AppText style={styles.femaleMeta}>{female.numero_identification || 'Sans identification'}</AppText>
-                    </View>
-                    <MaterialCommunityIcons name="chevron-right" size={20} color="#BDBDBD" />
-                  </View>
+                  <AppText style={selectedFemaleSaillie ? styles.inputText : styles.inputPlaceholder}>
+                    {selectedFemaleSaillie?.nom || 'Sélectionner une femelle'}
+                  </AppText>
                 </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
-        )}
-      </View>
-
-      <Modalize
-        ref={bottomSheetRef}
-        adjustToContentHeight
-        modalStyle={styles.bottomSheetModal}
-        handleStyle={styles.bottomSheetHandle}
-        onClose={handleBottomSheetClose}
-      >
-        <View style={styles.bottomSheetContent}>
-          {!showForm ? (
-            <>
-              <AppText style={styles.bottomSheetTitle}>Type d'événement pour {selectedFemale?.nom}</AppText>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.typeScrollContent}
-              >
-                {eventTypes.map((type) => {
-                  const config = TYPE_CONFIG[type.nom_type] || { icon: 'information', color: '#757575' };
-                  return (
-                    <TouchableOpacity
-                      key={type.id}
-                      style={styles.typeChip}
-                      onPress={() => handleTypePress(type)}
-                    >
-                      <View style={[styles.typeChipIcon, { backgroundColor: config.color + '20' }]}>
-                        <MaterialCommunityIcons name={config.icon} size={24} color={config.color} />
-                      </View>
-                      <AppText style={styles.typeChipText}>{type.nom_type}</AppText>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </>
-          ) : (
-            <>
-              <AppText style={styles.bottomSheetTitle}>Détails de l'événement</AppText>
-              
-              <View style={styles.selectedInfo}>
-                <AppText style={styles.selectedLabel}>Femelle</AppText>
-                <AppText style={styles.selectedValue}>{selectedFemale?.nom}</AppText>
                 
-                <AppText style={styles.selectedLabel}>Type</AppText>
-                <View style={styles.selectedType}>
-                  <MaterialCommunityIcons 
-                    name={TYPE_CONFIG[selectedType?.nom_type || '']?.icon || 'information'} 
-                    size={20} 
-                    color={TYPE_CONFIG[selectedType?.nom_type || '']?.color || '#757575'} 
-                  />
-                  <AppText style={styles.selectedTypeText}>{selectedType?.nom_type}</AppText>
-                </View>
+                <AppText style={styles.label}>Mâle *</AppText>
+                <TouchableOpacity 
+                  onPress={() => malePickerRef.current?.present()}
+                  activeOpacity={0.7}
+                  style={styles.input}
+                >
+                  <AppText style={selectedMale ? styles.inputText : styles.inputPlaceholder}>
+                    {selectedMale?.nom || 'Sélectionner un mâle'}
+                  </AppText>
+                </TouchableOpacity>
+                
+                <AppText style={styles.label}>Date de saillie *</AppText>
+                <AppDateTimePicker 
+                  value={dateSaillie} 
+                  onChange={(_: any, formatted: string) => {
+                    setDateSaillie(new Date(formatted.split('/').reverse().join('-')));
+                    calculateBirthDate();
+                  }}
+                  placeholder="Sélectionner une date" 
+                />
+                
+                {calculatedBirthDate && (
+                  <View style={styles.infoCard}>
+                    <AppText style={styles.infoTitle}>Date estimée de mise bas</AppText>
+                    <AppText style={styles.infoValue}>{formatDate(calculatedBirthDate)}</AppText>
+                    <AppText style={styles.infoSub}>
+                      {selectedFemaleSaillie?.espece?.nom?.toLowerCase().includes('bovin') 
+                        ? 'Bovins : ~285 jours' 
+                        : 'Ovins/Caprins : ~150 jours'}
+                    </AppText>
+                  </View>
+                )}
               </View>
+            )}
 
-              <AppText style={styles.label}>Date *</AppText>
-              <AppDateTimePicker 
-                value={dateEvent} 
-                onChange={(_: any, formatted: string) => setDateEvent(new Date(formatted.split('/').reverse().join('-')))} 
-                placeholder="Sélectionner une date" 
-              />
-              
+            {/* Formulaire Gestation */}
+            {activeTab === 'gestation' && (
+              <View style={styles.formSection}>
+                <AppText style={styles.label}>Femelle *</AppText>
+                <TouchableOpacity 
+                  onPress={() => femaleGestationPickerRef.current?.present()}
+                  activeOpacity={0.7}
+                  style={styles.input}
+                >
+                  <AppText style={selectedFemaleGestation ? styles.inputText : styles.inputPlaceholder}>
+                    {selectedFemaleGestation?.nom || 'Sélectionner une femelle'}
+                  </AppText>
+                </TouchableOpacity>
+                
+                <AppText style={styles.label}>Date de confirmation *</AppText>
+                <AppDateTimePicker 
+                  value={dateConfirmation} 
+                  onChange={(_: any, formatted: string) => {
+                    setDateConfirmation(new Date(formatted.split('/').reverse().join('-')));
+                    calculateEstimatedBirthDate();
+                  }}
+                  placeholder="Sélectionner une date" 
+                />
+                
+                {estimatedBirthDate && (
+                  <View style={styles.infoCard}>
+                    <AppText style={styles.infoTitle}>Date estimée de mise bas</AppText>
+                    <AppText style={styles.infoValue}>{formatDate(estimatedBirthDate)}</AppText>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Formulaire Mise bas */}
+            {activeTab === 'misebas' && (
+              <View style={styles.formSection}>
+                <AppText style={styles.label}>Femelle *</AppText>
+                <TouchableOpacity 
+                  onPress={() => femaleMiseBasPickerRef.current?.present()}
+                  activeOpacity={0.7}
+                  style={styles.input}
+                >
+                  <AppText style={selectedFemaleMiseBas ? styles.inputText : styles.inputPlaceholder}>
+                    {selectedFemaleMiseBas?.nom || 'Sélectionner une femelle'}
+                  </AppText>
+                </TouchableOpacity>
+                
+                <AppText style={styles.label}>Date de mise bas *</AppText>
+                <AppDateTimePicker 
+                  value={dateMiseBas} 
+                  onChange={(_: any, formatted: string) => setDateMiseBas(new Date(formatted.split('/').reverse().join('-')))}
+                  placeholder="Sélectionner une date" 
+                />
+                
+                <AppText style={styles.label}>Nombre de nouveau-nés</AppText>
+                <AppTextInput 
+                  value={nombreNouveauNes} 
+                  onChangeText={setNombreNouveauNes} 
+                  keyboardType="numeric" 
+                  placeholder="0" 
+                />
+              </View>
+            )}
+
+            {/* Champs communs */}
+            <View style={styles.formSection}>
               <AppText style={styles.label}>Description</AppText>
               <AppTextInput 
                 value={description} 
@@ -323,59 +489,131 @@ const AddReproductionEventScreen = () => {
               
               <View style={styles.formActions}>
                 <AppButton 
-                  title="Retour" 
-                  onPress={() => setShowForm(false)} 
-                  style={styles.cancelButton} 
-                />
-                <AppButton 
                   title={submitting ? 'Enregistrement...' : 'Enregistrer'} 
                   onPress={handleSubmit} 
                   disabled={submitting} 
                   style={styles.submitButton} 
                 />
               </View>
-            </>
-          )}
-        </View>
-      </Modalize>
+            </View>
+          </>
+        )}
+      </ScrollView>
+
+      {/* AnimalPickers */}
+      <AnimalPicker
+        ref={femaleSailliePickerRef}
+        animals={availableFemales}
+        title="Sélectionner une femelle"
+        onSelect={(animal) => setSelectedFemaleSaillie(animal)}
+        selectedId={selectedFemaleSaillie?.id}
+      />
+      <AnimalPicker
+        ref={malePickerRef}
+        animals={filteredMales}
+        title="Sélectionner un mâle"
+        onSelect={(animal) => setSelectedMale(animal)}
+        selectedId={selectedMale?.id}
+      />
+      <AnimalPicker
+        ref={femaleGestationPickerRef}
+        animals={availableFemales}
+        title="Sélectionner une femelle"
+        onSelect={(animal) => setSelectedFemaleGestation(animal)}
+        selectedId={selectedFemaleGestation?.id}
+      />
+      <AnimalPicker
+        ref={femaleMiseBasPickerRef}
+        animals={availableFemales}
+        title="Sélectionner une femelle"
+        onSelect={(animal) => setSelectedFemaleMiseBas(animal)}
+        selectedId={selectedFemaleMiseBas?.id}
+      />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: { flex: 1, backgroundColor: Theme.backgroundLight },
+  header: {
+    backgroundColor: Theme.primary,
+  },
   content: { flex: 1, padding: 16 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 12, borderRadius: 12, marginBottom: 12 },
-  searchInput: { flex: 1, marginLeft: 8, paddingVertical: 12 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollView: { flex: 1 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
-  emptyText: { marginTop: 16, fontSize: 16 },
-  femaleCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#E0E0E0' },
-  femaleMain: { flexDirection: 'row', alignItems: 'center' },
-  femaleInfo: { marginLeft: 10, flex: 1 },
-  femaleName: { fontWeight: '700', fontSize: 16 },
-  femaleMeta: { color: '#757575', fontSize: 14, marginTop: 2 },
+  input: {
+    backgroundColor: Theme.inputBackground,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  inputText: {
+    fontSize: 16,
+    color: Theme.textPrimary,
+  },
+  inputPlaceholder: {
+    fontSize: 16,
+    color: Theme.textSecondary,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 8,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: Theme.white,
+    alignItems: 'center',
+  },
+  tabActive: {
+    backgroundColor: Theme.primary,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Theme.textSecondary,
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
+  formSection: {
+    backgroundColor: Theme.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  label: { marginTop: 12, marginBottom: 6, fontWeight: '600', color: Theme.textPrimary },
+  multiline: { minHeight: 80, textAlignVertical: 'top' },
+  infoCard: {
+    backgroundColor: '#F5F7F5',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.textPrimary,
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Theme.primary,
+    marginBottom: 4,
+  },
+  infoSub: {
+    fontSize: 12,
+    color: Theme.textSecondary,
+  },
+  formActions: { marginTop: 16 },
+  submitButton: { width: '100%' },
   errorBanner: { backgroundColor: '#FFEBEE', borderRadius: 8, padding: 10, marginBottom: 10 },
   errorText: { color: '#C62828' },
-  bottomSheetModal: { borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: '#FFFFFF' },
-  bottomSheetHandle: { backgroundColor: '#E0E0E0', width: 40, height: 4 },
-  bottomSheetContent: { paddingHorizontal: 16, paddingVertical: 20 },
-  bottomSheetTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  typeScrollContent: { paddingVertical: 4 },
-  typeChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#F5F5F5', borderRadius: 20, marginRight: 12, borderWidth: 1, borderColor: '#E0E0E0' },
-  typeChipIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  typeChipText: { fontSize: 16, fontWeight: '600' },
-  selectedInfo: { backgroundColor: '#F5F5F5', borderRadius: 12, padding: 16, marginBottom: 16 },
-  selectedLabel: { fontSize: 12, color: '#757575', marginBottom: 4 },
-  selectedValue: { fontSize: 16, fontWeight: '600', marginBottom: 12 },
-  selectedType: { flexDirection: 'row', alignItems: 'center' },
-  selectedTypeText: { marginLeft: 8, fontSize: 16, fontWeight: '600' },
-  label: { marginTop: 12, marginBottom: 6, fontWeight: '600' },
-  multiline: { minHeight: 80, textAlignVertical: 'top' },
-  formActions: { flexDirection: 'row', marginTop: 16, gap: 10 },
-  cancelButton: { flex: 1, backgroundColor: '#F5F5F5' },
-  submitButton: { flex: 1 },
 });
 
 export default AddReproductionEventScreen;

@@ -12,6 +12,13 @@ export interface TransactionListItemProps {
 }
 
 const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, onPress }) => {
+  console.log('[TransactionListItem] Transaction received:', {
+    id: transaction.id,
+    montant: transaction.montant,
+    montant_type: typeof transaction.montant,
+    type_transaction: transaction.type_transaction,
+  });
+
   const getTransactionIcon = (type?: string, categorie?: string) => {
     // More specific icons based on category
     if (categorie === 'VENTE_ANIMAL') return 'tag';

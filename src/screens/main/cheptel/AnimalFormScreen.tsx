@@ -16,12 +16,14 @@ import AppImagePicker from '../../../components/AppImagePicker';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import AppSelect from '../../../components/AppSelect';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Theme } from '../../../config/colors';
 import { authStorage } from '../../../storage/authStorage';
+import { farmStorage } from '../../../storage/farmStorage';
 import { Animal, CreateAnimalRequest, UpdateAnimalRequest } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { createAnimal, updateAnimal, getLocalAnimalById, getLocalAnimalByNumeroIdentification } from '../../../database/repositories/animalRepository';
-import { getLocalEspeces, Espece } from '../../../database/repositories/especeRepository';
 import { getLocalLots, Lot } from '../../../database/repositories/lotRepository';
+import { useEspeces } from '../../../hooks/useEspeces';
 
 type AnimalFormRouteProp = RouteProp<CheptelStackParamList, 'AnimalForm'>;
 type AnimalFormNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalForm'>;
@@ -37,10 +39,11 @@ const AnimalFormScreen = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
-  const [especes, setEspeces] = useState<Espece[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
-  const [loadingEspeces, setLoadingEspeces] = useState<boolean>(false);
   const [photoUri, setPhotoUri] = useState<string>('');
+
+  // Load especes from WatermelonDB using hook
+  const { especes, loading: loadingEspeces } = useEspeces();
   const [dateNaissance, setDateNaissance] = useState<Date | undefined>(undefined);
 
   const [formData, setFormData] = useState<{
@@ -72,27 +75,16 @@ const AnimalFormScreen = () => {
   // Charger la ferme active
   const loadActiveFarm = async () => {
     try {
-      const activeFarm = await authStorage.getItem('active_farm');
-      if (activeFarm) {
-        const farm = JSON.parse(activeFarm);
+      console.log('[AnimalForm] Loading active farm from farmStorage');
+      const farm = await farmStorage.getActiveFarm();
+      if (farm) {
+        console.log('[AnimalForm] Active farm loaded:', farm.id, farm.name);
         setFarmId(farm.id);
+      } else {
+        console.warn('[AnimalForm] No active farm found');
       }
     } catch (error) {
-      console.error('Error loading active farm:', error);
-    }
-  };
-
-  // Charger les espèces depuis la base locale
-  const loadEspeces = async () => {
-    try {
-      setLoadingEspeces(true);
-      const especesData = await getLocalEspeces();
-      setEspeces(especesData);
-    } catch (error: any) {
-      console.error('Error loading especes:', error);
-      setError('Erreur lors du chargement des espèces');
-    } finally {
-      setLoadingEspeces(false);
+      console.error('[AnimalForm] Error loading active farm:', error);
     }
   };
 
@@ -145,7 +137,6 @@ const AnimalFormScreen = () => {
 
   useEffect(() => {
     loadActiveFarm();
-    loadEspeces();
     if (isEditMode) {
       loadAnimal();
     }
@@ -174,6 +165,9 @@ const AnimalFormScreen = () => {
       errors.general = 'Aucune ferme active sélectionnée';
     }
 
+    console.log('[AnimalForm] Validation check - nom:', formData.nom.trim(), 'sexe:', formData.sexe, 'farmId:', farmId);
+    console.log('[AnimalForm] Validation errors so far:', errors);
+
     // Check for duplicate numero_identification only when creating a new animal
     if (!isEditMode && formData.numero_identification.trim() && farmId) {
       const existingAnimal = await getLocalAnimalByNumeroIdentification(farmId, formData.numero_identification.trim());
@@ -183,25 +177,40 @@ const AnimalFormScreen = () => {
     }
 
     setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    const isValid = Object.keys(errors).length === 0;
+    console.log('[AnimalForm] Final validation result:', isValid, 'errors:', errors);
+    return isValid;
   };
 
   // Soumission
   const handleSubmit = async () => {
+    console.log('[AnimalForm] handleSubmit called, isEditMode:', isEditMode);
+    console.log('[AnimalForm] formData:', formData);
+    console.log('[AnimalForm] farmId:', farmId);
+    
     const isValid = await validate();
-    if (!isValid) return;
-    if (!farmId) return;
+    console.log('[AnimalForm] Validation result:', isValid);
+    if (!isValid) {
+      console.log('[AnimalForm] Validation failed, fieldErrors:', fieldErrors);
+      return;
+    }
+    if (!farmId) {
+      console.log('[AnimalForm] No farmId, aborting');
+      return;
+    }
 
     try {
       setSubmitting(true);
       setError(null);
       setFieldErrors({});
+      console.log('[AnimalForm] Starting submission...');
 
       const payload: CreateAnimalRequest | UpdateAnimalRequest = {
         farm_id: farmId,
         nom: formData.nom.trim(),
         sexe: formData.sexe!,
       };
+      console.log('[AnimalForm] Initial payload:', payload);
 
       if (formData.numero_identification.trim()) {
         payload.numero_identification = formData.numero_identification.trim();
@@ -220,6 +229,11 @@ const AnimalFormScreen = () => {
       }
       if (formData.photo.trim()) {
         payload.photo = formData.photo.trim();
+      }
+
+      // Set default status to SAIN for new animals
+      if (!isEditMode) {
+        (payload as CreateAnimalRequest).statut = 'SAIN';
       }
 
       if (isEditMode) {
@@ -273,9 +287,10 @@ const AnimalFormScreen = () => {
       <SafeAreaView style={styles.container}>
         <AppHeader
           title={isEditMode ? 'Modifier l\'animal' : 'Ajouter un animal'}
-          showBackground={true}
+          showBackground={false}
           showBackButton={true}
           onBackPress={() => navigation.goBack()}
+          style={styles.header}
         />
         <View style={styles.loadingContainer}>
           <AppText color="#757575">Chargement...</AppText>
@@ -288,9 +303,11 @@ const AnimalFormScreen = () => {
     <SafeAreaView style={styles.container}>
       <AppHeader
         title={isEditMode ? 'Modifier l\'animal' : 'Ajouter un animal'}
-        showBackground={true}
-        showBackButton={true}
+        showBackground={false}
+        showBackButton
         onBackPress={() => navigation.goBack()}
+        style={styles.header}
+        titleStyle={styles.headerTitle}
       />
 
       <ScrollView style={styles.content}>
@@ -460,6 +477,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: Theme.primary,
+    height:100,
+    paddingBottom:12
+  },
+  headerTitle:{
+    alignSelf:'center'
   },
   content: {
     flex: 1,

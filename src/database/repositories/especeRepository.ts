@@ -1,6 +1,5 @@
-import { getDatabase } from '../connection';
-import { createLocalRecord } from './baseRepository';
-import { BatchStatement } from '../batchTypes';
+import database from '../watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 
 export interface Espece {
   id: string;
@@ -14,137 +13,25 @@ export interface Espece {
   deleted_at?: string | null;
 }
 
-export async function createEspece(data: Omit<Espece, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<Espece> {
-  const db = await getDatabase();
-  
-  // Check for duplicate nom
-  if (data.nom) {
-    const existingEspece = await db.execute(
-      `SELECT id FROM especes WHERE nom = ? AND deleted_at IS NULL`,
-      [data.nom]
-    );
-    if (existingEspece?.rows && existingEspece.rows.length > 0) {
-      throw new Error(`Une espèce avec le nom "${data.nom}" existe déjà.`);
-    }
-  }
-  
-  return createLocalRecord<Espece>('especes', data);
-}
-
 export async function getLocalEspeces(): Promise<Espece[]> {
-  const db = await getDatabase();
-
-  const result = await db.execute(
-    `SELECT * FROM especes WHERE deleted_at IS NULL`
-  );
-
-  if (!result) {
-    return [];
-  }
-
-  // op-sqlite returns { rows: [...] }
-  if (result.rows) {
-    return result.rows as Espece[];
-  }
-
-  // Fallback if result is directly an array
-  if (Array.isArray(result)) {
-    return result as Espece[];
-  }
-
-  return [];
+  const especes = await database.get('especes')
+    .query()
+    .fetch();
+  return especes as unknown as Espece[];
 }
 
 export async function getLocalEspeceById(id: string): Promise<Espece | null> {
-  const db = await getDatabase();
-
-  const result = await db.execute(
-    `SELECT * FROM especes WHERE id = ? AND deleted_at IS NULL`,
-    [id]
-  );
-
-  if (!result) {
-    return null;
-  }
-
-  // op-sqlite returns { rows: [...] }
-  if (result.rows) {
-    const rows = result.rows as Espece[];
-    return rows.length > 0 ? rows[0] : null;
-  }
-
-  // Fallback if result is directly an array
-  if (Array.isArray(result)) {
-    return result.length > 0 ? result[0] : null;
-  }
-
-  return null;
-}
-
-/**
- * Build batch statements for espece upserts (pure function, no DB execution)
- * Used with executeBatch for atomic operations
- * @param especes - Array of especes to upsert
- * @param now - Current timestamp string
- * @returns Array of [sql, params] tuples for batch execution
- */
-export function buildEspeceUpsertStatements(especes: Espece[], now: string): BatchStatement[] {
-  return especes.map((espece) => [
-    `INSERT INTO especes (
-      id, nom, description, sync_status, version, created_at, updated_at
-    ) VALUES (?, ?, ?, 'synced', 1, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      nom = excluded.nom,
-      description = excluded.description,
-      sync_status = 'synced',
-      updated_at = excluded.updated_at,
-      version = version + 1`,
-    [
-      espece.id,
-      espece.nom,
-      espece.description || null,
-      espece.created_at || now,
-      espece.updated_at || now,
-    ],
-  ]);
-}
-
-/**
- * Upsert especes (insert or update) - atomic using ON CONFLICT
- * Used during sync to store especes from backend
- * @param especes - Array of especes to upsert
- * @param tx - Optional transaction object for atomic operations
- */
-export async function upsertEspeces(especes: Espece[], tx?: any): Promise<void> {
   try {
-    const db = tx || (await getDatabase());
-    const now = new Date().toISOString();
-
-    for (const espece of especes) {
-      // Atomic UPSERT using ON CONFLICT - eliminates race condition
-      await db.execute(
-        `INSERT INTO especes (
-          id, nom, description, sync_status, version, created_at, updated_at
-        ) VALUES (?, ?, ?, 'synced', 1, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          nom = excluded.nom,
-          description = excluded.description,
-          sync_status = 'synced',
-          updated_at = excluded.updated_at,
-          version = version + 1`,
-        [
-          espece.id,
-          espece.nom,
-          espece.description || null,
-          espece.created_at || now,
-          espece.updated_at || now,
-        ]
-      );
+    const especes = await database.get('especes')
+      .query(Q.where('api_id', id))
+      .fetch();
+    
+    if (especes.length > 0) {
+      return especes[0] as unknown as Espece;
     }
-
-    console.log(`[EspeceRepository] Upserted ${especes.length} especes atomically`);
+    return null;
   } catch (error) {
-    console.error('[EspeceRepository] Error upserting especes:', error);
-    throw error;
+    console.error('[EspeceRepository] Error getting espece by ID:', error);
+    return null;
   }
 }

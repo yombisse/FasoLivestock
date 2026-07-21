@@ -6,7 +6,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import AppText from '../../../components/AppText';
 import AppHeader from '../../../components/AppHeader';
 import { farmStorage } from '../../../storage/farmStorage';
-import animalService from '../../../services/animal.service';
 import { getLocalActiveAnimals } from '../../../database/repositories/animalRepository';
 
 const TransactionAnimalSelectionScreen = () => {
@@ -51,7 +50,7 @@ const TransactionAnimalSelectionScreen = () => {
   }, [search, animals]);
 
   const handleAnimalSelect = (animal: any) => {
-    navigation.navigate('AnimalVente' as never, { animalId: animal.id } as never);
+    navigation.navigate('AnimalVente' as never, { animalId: animal.id, typeEvenementId: undefined } as never);
   };
 
   return (

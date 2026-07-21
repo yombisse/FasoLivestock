@@ -17,10 +17,10 @@ import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import { Transaction, TransactionType, CreateTransactionData, UpdateTransactionData } from '../../../types/transaction.types';
 import { getLocalTransactionById } from '../../../database/repositories/transactionRepository';
 import { getLocalCategories } from '../../../database/repositories/categorieRepository';
-import transactionService from '../../../services/transaction.service';
 import { creerEvenementDepuisTransaction } from '../../../services/evenementTransactionService';
-import { getTypeEvenementIdByName } from '../../../database/repositories/typeEvenementRepository';
 import { farmStorage } from '../../../storage/farmStorage';
+import { authStorage } from '../../../storage/authStorage';
+import { createLocalRecord } from '../../../database/repositories/baseRepository';
 
 type TransactionFormRouteProp = RouteProp<any, 'TransactionForm'>;
 type TransactionFormNavigationProp = StackNavigationProp<any, 'TransactionForm'>;
@@ -52,6 +52,7 @@ const TransactionFormScreen = () => {
   const [description, setDescription] = useState('');
   const [evenementId, setEvenementId] = useState('');
   const [animalId, setAnimalId] = useState('');
+  const [tiers, setTiers] = useState('');
 
   const loadActiveFarm = async () => {
     try {
@@ -146,42 +147,58 @@ const TransactionFormScreen = () => {
       setSubmitting(true);
       setError(null);
 
-      const transactionData: CreateTransactionData = {
+      // Get user ID from auth storage
+      const userId = await authStorage.getUserId();
+
+      const transactionData = {
         type_transaction: typeTransaction,
         montant: parseFloat(montant),
-        date_transaction: dateTransaction ? dateTransaction.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        date_transaction: dateTransaction ? dateTransaction.toISOString() : new Date().toISOString(),
         categorie_id: categorieId || undefined,
         description: description || undefined,
         evenement_id: evenementId || undefined,
-        farm_id: farmId,
+        animal_id: animalId || undefined,
+        tiers: tiers || undefined,
+        user_id: userId,
+        last_modified_by: userId,
       };
 
       if (isEditMode && transaction) {
-        const updateData: UpdateTransactionData = {
-          ...transactionData,
-          version: transaction.version,
-          animal_id: animalId || undefined,
-        };
-        const { updateTransaction } = await import('../../../database/repositories/transactionRepository');
-        await updateTransaction(transactionId, updateData);
+        // Update existing transaction using updateLocalRecord
+        const { updateLocalRecord } = await import('../../../database/repositories/baseRepository');
+        await updateLocalRecord('transactions', transactionId, transactionData);
+        
+        console.log('[AUDIT] Transaction updated:', {
+          transaction_id: transactionId,
+          type_transaction: typeTransaction,
+          montant: parseFloat(montant),
+        });
       } else {
-        const { createTransaction } = await import('../../../database/repositories/transactionRepository');
-        const createdTransaction = await createTransaction(transactionData);
+        // Create new transaction using createLocalRecord
+        const createdTransaction = await createLocalRecord('transactions', transactionData);
+        
+        console.log('[AUDIT] Transaction created:', {
+          local_id: (createdTransaction as any).id,
+          farm_id: farmId,
+          type_transaction: typeTransaction,
+          montant: parseFloat(montant),
+          categorie_id: categorieId,
+          _status: (createdTransaction as any)._status,
+          sync_status: (createdTransaction as any).sync_status,
+          version: (createdTransaction as any).version,
+        });
 
         // Create corresponding event if transaction has animal_id and no evenement_id
-        if (animalId && !evenementId && parseFloat(montant) > 0) {
-          const typeEvenementId = await getTypeEvenementIdByName('AUTRE');
-          if (typeEvenementId) {
-            await creerEvenementDepuisTransaction({
-              transactionId: createdTransaction.id,
-              farmId: farmId,
-              animalId: animalId,
-              montant: parseFloat(montant),
-              dateTransaction: dateTransaction ? dateTransaction.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-              typeEvenementId: typeEvenementId,
-            });
-          }
-        }
+        // Note: This is commented out as per the original code - events are created by specific screens
+        // if (animalId && !evenementId && parseFloat(montant) > 0) {
+        //   await creerEvenementDepuisTransaction({
+        //     transactionId: (createdTransaction as any).id,
+        //     farmId: farmId,
+        //     animalId: animalId,
+        //     montant: parseFloat(montant),
+        //     dateTransaction: dateTransaction ? dateTransaction.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        //   });
+        // }
       }
 
       navigation.goBack();

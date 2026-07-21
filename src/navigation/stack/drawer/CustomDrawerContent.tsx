@@ -15,20 +15,19 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { authStorage } from '../../../storage/authStorage';
 import { farmStorage } from '../../../storage/farmStorage';
 import { Farm } from '../../../types/farm.types';
-import { getDatabase } from '../../../database/connection';
-import { fullSync } from '../../../sync/syncService';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
-import { syncEvents } from '../../../sync/syncEvents';
+import { syncWatermelon } from '../../../sync/watermelonSync';
+import { useSyncStatus } from '../../../hooks/useSyncStatus';
+import { Theme } from '../../../config/colors';
 
 const { width } = Dimensions.get('window');
 
 const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   const [user, setUser] = useState<any>(null);
   const [activeFarm, setActiveFarm] = useState<Farm | null>(null);
-  const [pendingItemsCount, setPendingItemsCount] = useState<number>(0);
-  const [failedItemsCount, setFailedItemsCount] = useState<number>(0);
   const [syncing, setSyncing] = useState<boolean>(false);
   const isConnected = useNetworkStatus();
+  const { pendingCount, failedCount } = useSyncStatus(activeFarm?.id || '');
 
   const loadUserData = async () => {
     try {
@@ -48,35 +47,17 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
     }
   };
 
-  const loadSyncQueueCounts = async () => {
-    try {
-      const db = await getDatabase();
-      const pendingResult = await db.execute(
-        `SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'`
-      );
-      const failedResult = await db.execute(
-        `SELECT COUNT(*) as count FROM sync_queue WHERE status = 'failed'`
-      );
-
-      const pendingCount = pendingResult?.rows?.[0]?.count || 0;
-      const failedCount = failedResult?.rows?.[0]?.count || 0;
-
-      console.log('[CustomDrawerContent] Sync queue counts - pending:', pendingCount, 'failed:', failedCount);
-      setPendingItemsCount(pendingCount);
-      setFailedItemsCount(failedCount);
-    } catch (error) {
-      console.error('Error loading sync queue counts:', error);
-    }
-  };
-
   const handleManualSync = async () => {
     if (!activeFarm || syncing) return;
 
     try {
       setSyncing(true);
-      await fullSync(activeFarm.id);
-      console.log('[CustomDrawerContent] Manual sync completed, refreshing counts');
-      await loadSyncQueueCounts();
+      const result = await syncWatermelon(activeFarm.id);
+      if (result.success) {
+        console.log('[CustomDrawerContent] Manual sync completed');
+      } else {
+        console.error('[CustomDrawerContent] Manual sync failed:', result.error);
+      }
     } catch (error) {
       console.error('[CustomDrawerContent] Manual sync failed:', error);
     } finally {
@@ -110,11 +91,21 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   const navigateToScreen = (screenName: string) => {
     try {
       props.navigation.closeDrawer();
-      // Navigate to MainTabs with the specific tab
-      if (screenName === 'MainTabs') {
-        props.navigation.navigate('MainTabs');
-      } else {
+      // Navigate to specific tab in MainTabs
+      if (screenName === 'Home') {
+        props.navigation.navigate('MainTabs', { screen: 'Home' });
+      } else if (screenName === 'Cheptel') {
+        props.navigation.navigate('MainTabs', { screen: 'Cheptel' });
+      } else if (screenName === 'Reproduction') {
+        props.navigation.navigate('MainTabs', { screen: 'Reproduction' });
+      } else if (screenName === 'Sante') {
+        props.navigation.navigate('MainTabs', { screen: 'Sante' });
+      } else if (screenName === 'Finance') {
+        props.navigation.navigate('MainTabs', { screen: 'Finance' });
+      } else if (screenName === 'SyncConflicts') {
         props.navigation.navigate('SyncConflicts');
+      } else {
+        props.navigation.navigate('MainTabs');
       }
     } catch (error) {
       console.error('Error navigating:', error);
@@ -124,17 +115,6 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   useEffect(() => {
     loadUserData();
     loadActiveFarm();
-    loadSyncQueueCounts();
-
-    // Subscribe to sync events to refresh counts when sync completes
-    const unsubscribeFullSync = syncEvents.subscribe('sync:full:completed', () => {
-      console.log('[CustomDrawerContent] Sync full completed event received, refreshing counts');
-      loadSyncQueueCounts();
-    });
-
-    return () => {
-      unsubscribeFullSync();
-    };
   }, []);
 
   const getInitials = (name: string) => {
@@ -213,11 +193,11 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
       <ScrollView style={styles.content}>
         {/* Navigation principale */}
         <View style={styles.navSection}>
-          {renderNavItem('Accueil', 'home', 'MainTabs', props.state.index === 0, 'home')}
-          {renderNavItem('Cheptel', 'cow', 'MainTabs', props.state.index === 1, 'cheptel')}
-          {renderNavItem('Reproduction', 'gender-male-female', 'MainTabs', props.state.index === 2, 'reproduction')}
-          {renderNavItem('Santé', 'medical-bag', 'MainTabs', props.state.index === 3, 'sante')}
-          {renderNavItem('Finance', 'cash', 'MainTabs', props.state.index === 4, 'finance')}
+          {renderNavItem('Accueil', 'home', 'Home', props.state.index === 0, 'home')}
+          {renderNavItem('Cheptel', 'cow', 'Cheptel', props.state.index === 1, 'cheptel')}
+          {renderNavItem('Reproduction', 'gender-male-female', 'Reproduction', props.state.index === 2, 'reproduction')}
+          {renderNavItem('Santé', 'medical-bag', 'Sante', props.state.index === 3, 'sante')}
+          {renderNavItem('Finance', 'cash', 'Finance', props.state.index === 4, 'finance')}
         </View>
 
         {/* Section secondaire */}
@@ -236,22 +216,22 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
             </AppText>
           </View>
 
-          {(pendingItemsCount > 0 || failedItemsCount > 0) && (
+          {(pendingCount > 0 || failedCount > 0) && (
             <View style={styles.syncCountsRow}>
-              {pendingItemsCount > 0 && (
+              {pendingCount > 0 && (
                 <View style={styles.syncCountBadge}>
-                  <AppText style={styles.syncCountText}>{pendingItemsCount} en attente</AppText>
+                  <AppText style={styles.syncCountText}>{pendingCount} en attente</AppText>
                 </View>
               )}
-              {failedItemsCount > 0 && (
+              {failedCount > 0 && (
                 <View style={[styles.syncCountBadge, styles.syncCountBadgeError]}>
-                  <AppText style={styles.syncCountText}>{failedItemsCount} échoué(s)</AppText>
+                  <AppText style={styles.syncCountText}>{failedCount} échoué(s)</AppText>
                 </View>
               )}
             </View>
           )}
 
-          {isConnected && (pendingItemsCount > 0 || failedItemsCount > 0) && (
+          {isConnected && (pendingCount > 0 || failedCount > 0) && (
             <TouchableOpacity
               style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
               onPress={handleManualSync}
@@ -294,10 +274,10 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Theme.white,
   },
   header: {
-    backgroundColor: '#2E7D32',
+    backgroundColor: Theme.primary,
     paddingTop: 40,
     paddingBottom: 24,
     paddingHorizontal: 20,

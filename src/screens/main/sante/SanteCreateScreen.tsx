@@ -4,102 +4,88 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { Modalize } from 'react-native-modalize';
-import AppHeader from '../../../components/AppHeader';
+import { useNavigation } from '@react-navigation/native';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
+import AppHeader from '../../../components/AppHeader';
+import AppTab from '../../../components/AppTab';
 import AppDateTimePicker from '../../../components/AppDateTimePicker';
 import AppTextInput from '../../../components/AppTextInput';
 import AppSelect, { AppSelectOption } from '../../../components/AppSelect';
-import { createEvenementSanitaire } from '../../../database/repositories/santeEvenementsRepository';
-import { clearFarmCache } from '../../../database/repositories/cacheRepository';
+import AnimalPicker, { AnimalPickerRef } from '../../../components/AnimalPicker';
+import database from '../../../database/watermelonIndex';
+import { useTypeEvenements } from '../../../hooks/useTypeEvenements';
+import { useCategories } from '../../../hooks/useCategories';
+import { useAnimals } from '../../../hooks/useAnimals';
 import { farmStorage } from '../../../storage/farmStorage';
 import { authStorage } from '../../../storage/authStorage';
 import { TypeEvenementSanitaire, MetadonneesSanitaire } from '../../../types/sante.types';
-import { getLocalTypeEvenements } from '../../../database/repositories/typeEvenementRepository';
-import { getLocalCategories } from '../../../database/repositories/categorieRepository';
-import { getLocalLots } from '../../../database/repositories/lotRepository';
+import { TypeEvenementIds } from '../../../constants/typeEvenements';
+import { Animal } from '../../../types/animal.types';
+import { createEvenementSanitaire } from '../../../database/repositories/santeEvenementsRepository';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Theme } from '../../../config/colors';
+import { validerEvenementSanitaire } from '../../../utils/santeValidation';
 
-const TYPE_CONFIG_SANTE: Record<string, { icon: string; color: string }> = {
-  'Vaccination': { icon: 'needle', color: '#2196F3' },
-  'Traitement': { icon: 'pill', color: '#FF9800' },
-  'Maladie': { icon: 'virus', color: '#F44336' },
-  'Contrôle': { icon: 'stethoscope', color: '#4CAF50' },
-  'Pesée': { icon: 'scale', color: '#9C27B0' },
-  'Autre': { icon: 'information', color: '#757575' },
-};
+const TABS_CONFIG = [
+  { id: 'maladie', label: 'Maladie' },
+  { id: 'vaccination', label: 'Vaccination' },
+  { id: 'surveillance', label: 'Surveillance' },
+  { id: 'traitement', label: 'Traitement' },
+];
 
 const SanteCreateScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute();
-  const selectedAnimal = (route.params as any)?.animal;
-  const [selectedType, setSelectedType] = useState<any | null>(null);
+  const animalPickerRef = useRef<AnimalPickerRef>(null);
+  const [activeTab, setActiveTab] = useState<'maladie' | 'vaccination' | 'surveillance' | 'traitement'>('maladie');
+  const [selectedAnimal, setSelectedAnimal] = useState<Animal | null>(null);
   const [dateEvent, setDateEvent] = useState<Date | undefined>(undefined);
   const [description, setDescription] = useState('');
   const [cout, setCout] = useState('');
   const [metadata, setMetadata] = useState<MetadonneesSanitaire>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSyncMessage, setShowSyncMessage] = useState(false);
   const [farmId, setFarmId] = useState<string | null>(null);
-  const [lots, setLots] = useState<Array<{ id: string; nom_lot: string }>>([]);
-  const [typeEvenements, setTypeEvenements] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const bottomSheetRef = useRef<Modalize>(null);
+
+  // WatermelonDB hooks
+  const { typeEvenements, loading: loadingTypes } = useTypeEvenements(farmId || undefined);
+  const { categories, loading: loadingCategories } = useCategories(farmId || '');
+  const { animals, loading: loadingAnimals } = useAnimals(farmId || '');
+
+  // Filter to only show alive and present animals for event creation
+  const availableAnimals = animals.filter((a: any) => {
+    const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
+    return !excludedStatuses.includes(a.statut || '');
+  });
+
+  // Filter to only show SANITAIRE type evenements
+  const santeTypeEvenements = typeEvenements.filter(
+    (type: any) => type.categorie === 'SANITAIRE'
+  );
+
+  // Log available sanitary event types for debugging
+  console.log('[SanteCreateScreen] Available SANITAIRE type evenements:', santeTypeEvenements.map((t: any) => ({ id: t.id, nom_type: t.nom_type })));
 
   const loadActiveFarm = async () => {
     try {
       const farm = await farmStorage.getActiveFarm();
+      console.log('[SanteCreateScreen] Active farm:', farm);
       if (farm) {
         setFarmId(farm.id);
-        // Load lots for this farm
-        const farmLots = await getLocalLots(farm.id);
-        setLots(farmLots.map(lot => ({ id: lot.id, nom_lot: lot.nom_lot })));
+        console.log('[SanteCreateScreen] Farm ID set:', farm.id);
       }
     } catch (error) {
       console.error('Error loading active farm:', error);
     }
   };
 
-  const loadTypeEvenements = async () => {
-    try {
-      const typeEvenementsData = await getLocalTypeEvenements();
-      // Filter to only show SANITAIRE type evenements
-      const filteredTypeEvenements = typeEvenementsData.filter(
-        (type: any) => type.categorie === 'SANITAIRE'
-      );
-      setTypeEvenements(filteredTypeEvenements);
-    } catch (error) {
-      console.error('Error loading type evenements:', error);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      const categoriesData = await getLocalCategories();
-      setCategories(categoriesData);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
-
   useEffect(() => {
     loadActiveFarm();
-    loadTypeEvenements();
-    loadCategories();
-    if (selectedAnimal) {
-      bottomSheetRef.current?.open();
-    }
   }, []);
-
-  const handleTypePress = (type: TypeEvenementSanitaire) => {
-    setSelectedType(type);
-    bottomSheetRef.current?.close();
-  };
 
   const handleMetadataChange = (key: keyof MetadonneesSanitaire, value: string) => {
     setMetadata(prev => ({ ...prev, [key]: value }));
@@ -121,19 +107,29 @@ const SanteCreateScreen = () => {
   const handleSubmit = async () => {
     console.log('[SanteCreateScreen] handleSubmit called');
     console.log('[SanteCreateScreen] selectedAnimal:', selectedAnimal);
-    console.log('[SanteCreateScreen] selectedType:', selectedType);
+    console.log('[SanteCreateScreen] selectedAnimal.id:', selectedAnimal?.id);
+    console.log('[SanteCreateScreen] activeTab:', activeTab);
     console.log('[SanteCreateScreen] dateEvent:', dateEvent);
     console.log('[SanteCreateScreen] farmId:', farmId);
 
-    if (!selectedAnimal || !selectedType || !dateEvent || !farmId) {
+    if (!selectedAnimal || !selectedAnimal.id || !activeTab || !dateEvent || !farmId) {
       console.log('[SanteCreateScreen] Validation failed - missing required fields');
       setError('Veuillez remplir tous les champs obligatoires');
       return;
     }
 
     // Check if animal is active
-    if (selectedAnimal.statut !== 'ACTIF') {
-      console.log('[SanteCreateScreen] Animal not active:', selectedAnimal.statut);
+    console.log('[AUDIT] Sanitary event - checking animal status:', {
+      animal_id: selectedAnimal.id,
+      animal_nom: selectedAnimal.nom,
+      statut: selectedAnimal.statut,
+      required_statut: 'SAIN',
+    });
+    
+    // Allow health events for SAIN, MALADE, EN_TRAITEMENT animals
+    const allowedStatuses = ['SAIN', 'MALADE', 'EN_TRAITEMENT'];
+    if (!allowedStatuses.includes(selectedAnimal.statut || '')) {
+      console.log('[SanteCreateScreen] Animal not eligible for health event:', selectedAnimal.statut);
       setError(`Impossible de créer un événement sanitaire pour cet animal (statut: ${selectedAnimal.statut})`);
       return;
     }
@@ -141,57 +137,88 @@ const SanteCreateScreen = () => {
     try {
       setSubmitting(true);
       setError(null);
-      console.log('[SanteCreateScreen] Starting sanitary event submission for type:', selectedType);
+      console.log('[SanteCreateScreen] Starting sanitary event submission for type:', activeTab);
 
-      // Get the UUID from the selected type evenement (loaded dynamically)
-      const typeEvenementId = selectedType?.id;
+      // Map activeTab to type_evenement_id using constants
+      const typeEvenementMap = {
+        maladie: TypeEvenementIds.MALADIE,
+        vaccination: TypeEvenementIds.VACCINATION,
+        surveillance: TypeEvenementIds.CONTROLE,
+        traitement: TypeEvenementIds.TRAITEMENT,
+      };
+      const typeEvenementId = typeEvenementMap[activeTab as keyof typeof typeEvenementMap];
       console.log('[SanteCreateScreen] type_evenement_id:', typeEvenementId);
 
       if (!typeEvenementId) {
+        console.error('[AUDIT] Sanitaire - Type evenement not found:', activeTab);
         console.log('[SanteCreateScreen] type_evenement_id not found, showing error');
-        setError(`Type d'événement introuvable. Synchronisation requise.`);
+        setError(`Type d'événement introuvable pour: ${activeTab}`);
         return;
       }
 
-      console.log('[SanteCreateScreen] Calling createEvenementSanitaire');
+      // Validation backend pour éviter les rejets lors du sync
+      const typeMap = {
+        maladie: 'maladie',
+        vaccination: 'vaccination',
+        surveillance: 'controle',
+        traitement: 'traitement',
+      };
+      const typeName = typeMap[activeTab] as any;
+
+      const validation = validerEvenementSanitaire({
+        animal_id: selectedAnimal.id,
+        type: typeName,
+        date_evenement: dateEvent.toISOString().split('T')[0],
+        description: description || undefined,
+        cout: cout ? parseFloat(cout) : undefined,
+        metadonnees: metadata,
+      });
+
+      if (!validation.valide) {
+        setError(validation.erreur || 'Erreur de validation');
+        return;
+      }
+
+      // Get user ID from auth storage
+      const userId = await authStorage.getUserId();
+
+      // Determine statut_apres based on event type
+      let statutApres: 'SAIN' | 'MALADE' | 'EN_TRAITEMENT' | 'VENDU' | 'MORT' | 'PERDU' = (selectedAnimal.statut || 'SAIN') as any;
+      
+      if (activeTab === 'maladie') {
+        statutApres = 'MALADE';
+      } else if (activeTab === 'traitement') {
+        statutApres = 'EN_TRAITEMENT';
+      } else if (activeTab === 'vaccination' || activeTab === 'surveillance') {
+        // Keep current status for vaccination and surveillance
+        statutApres = (selectedAnimal.statut || 'SAIN') as any;
+      }
+
+      // Create the Evenement using repository
       const createdEvent = await createEvenementSanitaire({
         farm_id: farmId,
         type_evenement_id: typeEvenementId,
         animal_id: selectedAnimal.id,
         date_evenement: dateEvent.toISOString().split('T')[0],
-        description: description || undefined,
-        cout: cout ? Number(cout) : undefined,
-        metadonnees: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
+        description: description || '',
+        categorie: 'SANITAIRE',
+        type: typeName,
+        statut_avant: (selectedAnimal.statut || 'SAIN') as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
+        statut_apres: statutApres as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
+        metadonnees: JSON.stringify(metadata),
+        cout: cout ? parseFloat(cout) : undefined,
+        last_modified_by: userId,
       });
-      console.log('[SanteCreateScreen] createEvenementSanitaire completed successfully');
+      console.log('[SanteCreateScreen] Created evenement with ID:', (createdEvent as any).id);
 
-      // Create transaction if cost > 0 (offline-first support)
-      if (cout && Number(cout) > 0) {
-        const user = await authStorage.getUser();
-        const userId = user?.id;
+      // NOTE: Transaction is NOT created locally - it will be derived automatically
+      // by EvenementTransactionService on the backend when the event is synced
 
-        // Get categorieId for FRAIS_SANITAIRE from loaded categories
-        const fraisSanitaireCategory = categories.find(
-          (cat: any) => cat.nom_categorie === 'FRAIS_SANITAIRE'
-        );
-        const categorieId = fraisSanitaireCategory?.id;
+      console.log('[SanteCreateScreen] Sanitary event submission completed');
 
-        const { creerTransactionDepuisEvenement } = await import('../../../services/evenementTransactionService');
-        await creerTransactionDepuisEvenement({
-          evenementId: createdEvent.id,
-          farmId: farmId,
-          animalId: selectedAnimal.id,
-          cout: Number(cout),
-          dateEvenement: dateEvent.toISOString(),
-          categorieId: categorieId,
-          userId: userId,
-        });
-        console.log('[SanteCreateScreen] Transaction created for sanitary event');
-      }
-
-      // Invalidate cache for this farm to reflect new sanitary event
-      await clearFarmCache(farmId);
-      console.log('[SanteCreateScreen] Cache cleared');
+      // Show sync message to user
+      setShowSyncMessage(true);
+      setTimeout(() => setShowSyncMessage(false), 3000);
 
       // Navigate to Sante tab using reset to ensure proper navigation
       console.log('[SanteCreateScreen] Navigating to Sante tab');
@@ -210,15 +237,13 @@ const SanteCreateScreen = () => {
   };
 
   const renderMetadataFields = () => {
-    if (!selectedType) return null;
-
     const fields: Array<{ key: keyof MetadonneesSanitaire; label: string; placeholder: string; type?: 'text' | 'select' | 'date'; options?: AppSelectOption[] }> = [];
 
-    switch (selectedType) {
+    switch (activeTab) {
       case 'vaccination':
         fields.push(
           { key: 'nom_vaccin', label: 'Nom du vaccin', placeholder: 'Ex: Rage', type: 'text' },
-          { key: 'lot_vaccin', label: 'Lot', placeholder: 'Numéro de lot', type: 'select', options: lots.map(lot => ({ label: lot.nom_lot, value: lot.nom_lot })) },
+          { key: 'lot_vaccin', label: 'Lot', placeholder: 'Numéro de lot', type: 'text' },
           { key: 'date_prochaine', label: 'Date prochaine', placeholder: 'YYYY-MM-DD', type: 'date' },
           { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
@@ -233,17 +258,18 @@ const SanteCreateScreen = () => {
         break;
       case 'maladie':
         fields.push(
+          { key: 'nom_maladie', label: 'Nom de la maladie *', placeholder: 'Ex: Fièvre aphteuse', type: 'text' },
           { key: 'symptomes', label: 'Symptômes', placeholder: 'Décrire les symptômes', type: 'text' },
           { key: 'diagnostic', label: 'Diagnostic', placeholder: 'Diagnostic présumé', type: 'text' },
           { key: 'gravite', label: 'Gravité', placeholder: 'Légère, Modérée, Grave', type: 'select', options: [
-            { label: 'Légère', value: 'Légère' },
-            { label: 'Modérée', value: 'Modérée' },
-            { label: 'Grave', value: 'Grave' },
+            { label: 'Légère', value: 'legere' },
+            { label: 'Modérée', value: 'moderee' },
+            { label: 'Grave', value: 'grave' },
           ]},
           { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
         break;
-      case 'controle':
+      case 'surveillance':
         fields.push(
           { key: 'type_controle', label: 'Type de contrôle', placeholder: 'Ex: Poids, Température', type: 'text' },
           { key: 'resultat', label: 'Résultat', placeholder: 'Résultat du contrôle', type: 'text' },
@@ -279,141 +305,95 @@ const SanteCreateScreen = () => {
     ));
   };
 
-  if (!selectedAnimal) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <AppHeader 
-          title="Erreur" 
-          showBackground 
-          showBackButton 
-          onBackPress={() => navigation.goBack()} 
-        />
-        <View style={styles.content}>
-          <AppText style={styles.errorText}>Aucun animal sélectionné</AppText>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader 
-        title="Ajouter événement sanitaire" 
-        subtitle={selectedAnimal.nom || 'Animal sans nom'} 
-        showBackground 
-        showBackButton 
-        onBackPress={() => navigation.goBack()} 
+      <AppHeader
+        showBackground={false}
+        title="Nouvel événement santé"
+        showBackButton
+        onBackPress={() => navigation.goBack()}
+        style={styles.header}
       />
+
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorBannerText}>{error}</AppText></View>}
-        
-        <View style={styles.animalInfo}>
-          <View style={styles.animalIcon}>
-            <MaterialCommunityIcons 
-              name={selectedAnimal.sexe === 'male' ? 'gender-male' : 'gender-female'} 
-              size={32} 
-              color={selectedAnimal.sexe === 'male' ? '#2196F3' : '#E91E63'} 
-            />
-          </View>
-          <View>
-            <AppText style={styles.animalName} fontWeight="bold">{selectedAnimal.nom || 'Sans nom'}</AppText>
-            <AppText style={styles.animalMeta} color="#757575" fontSize={12}>
-              {selectedAnimal.numero_identification || 'N° ID non défini'} • {selectedAnimal.espece?.nom || ''}
+        {showSyncMessage && (
+          <View style={styles.syncMessage}>
+            <MaterialCommunityIcons name="check-circle" size={20} color="#2E7D32" />
+            <AppText style={styles.syncMessageText}>
+              Enregistré ! La transaction associée apparaîtra une fois synchronisée.
             </AppText>
           </View>
-        </View>
-
-        {!selectedType ? (
-          <TouchableOpacity style={styles.selectTypeButton} onPress={() => bottomSheetRef.current?.open()}>
-            <MaterialCommunityIcons name="plus-circle" size={24} color="#2E7D32" />
-            <AppText style={styles.selectTypeText} fontWeight="bold">Sélectionner le type d'événement</AppText>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.selectedTypeContainer}>
-            <View style={styles.selectedTypeBadge}>
-              <MaterialCommunityIcons 
-                name={TYPE_CONFIG_SANTE[selectedType?.nom_type]?.icon || 'information'} 
-                size={20} 
-                color={TYPE_CONFIG_SANTE[selectedType?.nom_type]?.color || '#757575'} 
-              />
-              <AppText style={styles.selectedTypeText}>{selectedType?.nom_type}</AppText>
-            </View>
-            <TouchableOpacity onPress={() => bottomSheetRef.current?.open()}>
-              <MaterialCommunityIcons name="pencil" size={20} color="#757575" />
-            </TouchableOpacity>
-          </View>
         )}
 
-        {selectedType && (
-          <>
-            <AppText style={styles.label}>Date de l'événement *</AppText>
-            <AppDateTimePicker
-              value={dateEvent}
-              onChange={setDateEvent}
-              placeholder="Sélectionner une date"
-            />
+        <AppTab
+          options={TABS_CONFIG}
+          activeTab={activeTab}
+          onTabChange={(tabId) => setActiveTab(tabId as any)}
+          textStyle={styles.tabText}
+        />
 
-            <AppText style={styles.label}>Description</AppText>
-            <AppTextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Description de l'événement (optionnel)"
-            />
-
-            <AppText style={styles.label}>Coût</AppText>
-            <AppTextInput
-              value={cout}
-              onChangeText={setCout}
-              placeholder="Coût (optionnel)"
-              keyboardType="numeric"
-            />
-
-            <AppText style={styles.label}>Détails</AppText>
-            {renderMetadataFields()}
-
-            <View style={styles.buttonContainer}>
-              <AppButton
-                title={submitting ? 'Enregistrement...' : 'Enregistrer'}
-                onPress={handleSubmit}
-                disabled={!selectedType || !dateEvent || submitting}
-              />
-            </View>
-          </>
-        )}
-      </ScrollView>
-
-      <Modalize
-        ref={bottomSheetRef}
-        adjustToContentHeight
-        modalStyle={styles.bottomSheetModal}
-        handleStyle={styles.bottomSheetHandle}
-      >
-        <View style={styles.bottomSheetContent}>
-          <AppText style={styles.bottomSheetTitle} fontWeight="bold">Type d'événement</AppText>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.typeScrollContent}
+        <View style={styles.contextCard}>
+          <AppText style={styles.contextTitle}>Animal concerné *</AppText>
+          <TouchableOpacity 
+            onPress={() => {
+              console.log('Opening animal picker, ref:', animalPickerRef);
+              animalPickerRef.current?.present();
+            }}
+            activeOpacity={0.7}
+            style={styles.input}
           >
-            {typeEvenements.map((type) => {
-              const config = TYPE_CONFIG_SANTE[type.nom_type] || { icon: 'information', color: '#757575' };
-              const isSelected = selectedType?.id === type.id;
-              return (
-                <TouchableOpacity
-                  key={type.id}
-                  style={[styles.typeChip, isSelected && styles.typeChipSelected]}
-                  onPress={() => handleTypePress(type)}
-                >
-                  <View style={[styles.typeChipIcon, { backgroundColor: isSelected ? config.color : config.color + '20' }]}>
-                    <MaterialCommunityIcons name={config.icon} size={24} color={isSelected ? '#fff' : config.color} />
-                  </View>
-                  <AppText style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>{type.nom_type}</AppText>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+            <AppText style={selectedAnimal ? styles.inputText : styles.inputPlaceholder}>
+              {selectedAnimal?.nom || 'Sélectionner un animal'}
+            </AppText>
+          </TouchableOpacity>
         </View>
-      </Modalize>
+
+        <AnimalPicker
+          ref={animalPickerRef}
+          animals={availableAnimals}
+          title="Sélectionner un animal"
+          onSelect={(animal) => setSelectedAnimal(animal)}
+          selectedId={selectedAnimal?.id}
+        />
+
+        <AppText style={styles.label}>Date de l'événement *</AppText>
+        <AppDateTimePicker
+          value={dateEvent}
+          onChange={setDateEvent}
+          placeholder="Sélectionner une date"
+        />
+
+        <AppText style={styles.label}>Description</AppText>
+        <AppTextInput
+          style={[styles.input, styles.multilineInput]}
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Description de l'événement (optionnel)"
+          multiline
+        />
+
+        <AppText style={styles.label}>Coût (FCFA)</AppText>
+        <AppTextInput
+          style={styles.input}
+          value={cout}
+          onChangeText={setCout}
+          placeholder="Coût (optionnel)"
+          keyboardType="numeric"
+        />
+
+        <AppText style={styles.label}>Détails</AppText>
+        {renderMetadataFields()}
+
+        <View style={styles.buttonContainer}>
+          <AppButton
+            title={submitting ? 'Enregistrement...' : 'Enregistrer l\'événement'}
+            onPress={handleSubmit}
+            disabled={!selectedAnimal || !dateEvent || submitting}
+            style={styles.submitButton}
+          />
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -421,18 +401,18 @@ const SanteCreateScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: Theme.backgroundLight,
+  },
+  header: {
+    backgroundColor: Theme.primary,
+    height: 100,
+    alignItems:'center'
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#757575',
-    textAlign: 'center',
+    padding: 16,
   },
   errorBanner: {
     backgroundColor: '#FFEBEE',
@@ -444,76 +424,90 @@ const styles = StyleSheet.create({
     color: '#F44336',
     fontSize: 14,
   },
-  animalInfo: {
+  syncMessage: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: '#E8F5E9',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  syncMessageText: {
+    color: '#2E7D32',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    backgroundColor: Theme.white,
+    alignItems: 'center',
+  },
+  tabActive: {
+    backgroundColor: 'transparent',
+    borderColor: Theme.primary,
+  },
+  tabText: {
+    color: Theme.textPrimary,
+    fontSize: 9,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: Theme.primary,
+    fontWeight: '600',
+  },
+  contextCard: {
+    backgroundColor: Theme.white,
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
-  animalIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  animalName: {
+  contextTitle: {
+    color: Theme.textPrimary,
     fontSize: 16,
-    color: '#212121',
-    marginBottom: 4,
-  },
-  animalMeta: {
-    fontSize: 12,
-  },
-  selectTypeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#2E7D32',
-    borderStyle: 'dashed',
-    gap: 12,
-    marginBottom: 20,
-  },
-  selectTypeText: {
-    fontSize: 16,
-    color: '#2E7D32',
-  },
-  selectedTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-  },
-  selectedTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  selectedTypeText: {
-    fontSize: 16,
-    color: '#212121',
+    fontWeight: 'bold',
+    marginBottom: 12,
   },
   label: {
-    fontSize: 14,
-    color: '#212121',
-    marginBottom: 8,
+    color: Theme.textPrimary,
+    fontSize: 16,
     fontWeight: '600',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: Theme.inputBackground,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    fontSize: 16,
+    color: Theme.textPrimary,
+  },
+  inputText: {
+    fontSize: 16,
+    color: Theme.textPrimary,
+  },
+  inputPlaceholder: {
+    fontSize: 16,
+    color: Theme.textSecondary,
+  },
+  multilineInput: {
+    minHeight: 88,
+    textAlignVertical: 'top',
   },
   fieldContainer: {
     marginBottom: 16,
@@ -522,61 +516,8 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 40,
   },
-  bottomSheetModal: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    backgroundColor: '#FFFFFF',
-  },
-  bottomSheetHandle: {
-    backgroundColor: '#E0E0E0',
-    width: 40,
-    height: 4,
-    alignSelf: 'center',
-    marginTop: 8,
-    borderRadius: 2,
-  },
-  bottomSheetContent: {
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  bottomSheetTitle: {
-    fontSize: 18,
-    color: '#212121',
-    marginBottom: 20,
-    fontWeight: '700',
-  },
-  typeScrollContent: {
-    paddingHorizontal: 4,
-    gap: 12,
-  },
-  typeChip: {
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    minWidth: 100,
-  },
-  typeChipSelected: {
-    borderColor: '#2E7D32',
-    backgroundColor: '#2E7D32',
-  },
-  typeChipIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  typeChipText: {
-    fontSize: 12,
-    color: '#212121',
-  },
-  typeChipTextSelected: {
-    color: '#FFFFFF',
+  submitButton: {
+    marginTop: 16,
   },
 });
 
