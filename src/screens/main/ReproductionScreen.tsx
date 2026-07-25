@@ -14,6 +14,7 @@ import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import AppHeader from '../../components/AppHeader';
 import reproductionService from '../../services/reproduction.service';
+import { useReproductionEvents } from '../../hooks/useReproductionEvents';
 import { authStorage } from '../../storage/authStorage';
 import { farmStorage } from '../../storage/farmStorage';
 import { ReproductionEvent, ReproductionEventType } from '../../types/reproduction.types';
@@ -69,12 +70,10 @@ const ReproductionScreen = () => {
       // Use local repositories for offline-first pattern
       const { getLocalTypeEvenements } = await import('../../database/repositories/typeEvenementRepository');
       const { getLocalAnimals } = await import('../../database/repositories/animalRepository');
-      const { getReproductionEvents } = await import('../../database/repositories/reproductionRepository');
 
-      const [types, animalsData, eventsData] = await Promise.all([
+      const [types, animalsData] = await Promise.all([
         getLocalTypeEvenements(),
         getLocalAnimals(farm.id),
-        getReproductionEvents(farm.id),
       ]);
 
       // Filtrer les types reproductifs (exclure mouvements)
@@ -84,7 +83,6 @@ const ReproductionScreen = () => {
       setEventTypes(reproductionTypes);
       setFemales(animalsData.filter((a: any) => a.sexe === 'femelle' && !['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')));
       setMales(animalsData.filter((a: any) => a.sexe === 'male' && !['MORT', 'VENDU', 'PERDU'].includes(a.statut || '')));
-      setEvents(eventsData);
     } catch (e: any) {
       console.error('Error loading data:', e);
       setError(e.message || 'Impossible de charger la reproduction');
@@ -94,9 +92,37 @@ const ReproductionScreen = () => {
     }
   };
 
+  // Load animal names for events
+  const loadAnimalNames = async (events: ReproductionEvent[]) => {
+    const eventsWithAnimalNames = await Promise.all(
+      events.map(async (event) => {
+        let animalNom = 'Animal inconnu';
+        try {
+          const animal = await database.get('animals').find(event.animal_id);
+          animalNom = (animal as any).nom || (animal as any).numero_identification || 'Animal inconnu';
+        } catch {
+          animalNom = 'Animal inconnu';
+        }
+        return { ...event, animal_nom: animalNom };
+      })
+    );
+    return eventsWithAnimalNames;
+  };
+
   useEffect(() => {
     void loadData();
   }, []);
+
+  // Use reactive hook for reproduction events
+  const { events: dbEvents, loading: eventsLoading } = useReproductionEvents(farmId || '');
+
+  useEffect(() => {
+    if (dbEvents) {
+      loadAnimalNames(dbEvents).then(eventsWithNames => {
+        setEvents(eventsWithNames);
+      });
+    }
+  }, [dbEvents]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -155,7 +181,6 @@ const ReproductionScreen = () => {
               events.map((event) => {
                 const eventType = eventTypes.find((t: ReproductionEventType) => t.id === event.type_evenement_id);
                 const config = TYPE_CONFIG[eventType?.nom_type || ''] || { icon: 'information', color: '#757575' };
-                const female = females.find((f: any) => f.id === event.animal_id);
                 const syncConfig = getSyncStatusConfig(event.sync_status);
                 return (
                   <TouchableOpacity 
@@ -168,8 +193,8 @@ const ReproductionScreen = () => {
                         <MaterialCommunityIcons name={config.icon} size={24} color={config.color} />
                       </View>
                       <View style={styles.eventInfo}>
-                        <AppText style={styles.eventType}>{eventType?.nom_type || 'Événement'}</AppText>
-                        <AppText style={styles.eventFemale}>{female?.nom || 'Femelle inconnue'}</AppText>
+                        <AppText style={styles.eventType}>{(event as any).animal_nom || 'Animal inconnu'}</AppText>
+                        <AppText style={styles.eventFemale}>{eventType?.nom_type || 'Événement'}</AppText>
                       </View>
                       <View style={styles.eventRight}>
                         <AppText style={styles.eventDate}>{event.date_evenement}</AppText>

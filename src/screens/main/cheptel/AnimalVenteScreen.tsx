@@ -22,7 +22,7 @@ import { CategorieSystemeIds } from '../../../constants/categories';
 import { VenteRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
-import { getLocalAnimalById } from '../../../database/repositories/animalRepository';
+import { getLocalAnimalById, filterAnimalsForMouvement } from '../../../database/repositories/animalRepository';
 import { useAnimals } from '../../../hooks/useAnimals';
 import { Theme } from '../../../config/colors';
 import { validerMouvement } from '../../../utils/transactionValidation';
@@ -46,10 +46,8 @@ const AnimalVenteScreen = () => {
 
   // Load animals from WatemelonDB
   const { animals, loading: loadingAnimals } = useAnimals(farmId || '');
-  const availableAnimals = animals.filter((a: any) => {
-    const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
-    return !excludedStatuses.includes(a.statut || '');
-  });
+  // Filtre d'éligibilité pour les mouvements de type VENTE
+  const availableAnimals = filterAnimalsForMouvement(animals, 'vente');
 
   const [formData, setFormData] = useState<{
     prix: string;

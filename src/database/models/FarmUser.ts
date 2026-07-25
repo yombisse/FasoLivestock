@@ -4,7 +4,6 @@ import { field, date, readonly, relation } from '@nozbe/watermelondb/decorators'
 export class FarmUser extends Model {
   static table = 'farm_user';
 
-  @field('api_id') api_id?: string;
   @field('farm_id') farm_id!: string;
   @field('user_id') user_id!: string;
   @field('role') role!: string;

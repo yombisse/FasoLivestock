@@ -12,12 +12,6 @@ export interface TransactionListItemProps {
 }
 
 const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, onPress }) => {
-  console.log('[TransactionListItem] Transaction received:', {
-    id: transaction.id,
-    montant: transaction.montant,
-    montant_type: typeof transaction.montant,
-    type_transaction: transaction.type_transaction,
-  });
 
   const getTransactionIcon = (type?: string, categorie?: string) => {
     // More specific icons based on category
@@ -42,16 +36,34 @@ const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, 
     }
   };
 
-  const getTransactionLabel = (categorie?: string, description?: string) => {
-    if (categorie === 'VENTE_ANIMAL') return 'Vente d\'animal';
-    if (categorie === 'ACHAT_ANIMAL') return 'Achat d\'animal';
-    if (categorie === 'ALIMENTATION') return 'Alimentation';
-    if (categorie === 'SANTE') return 'Santé';
-    if (categorie === 'REPRODUCTION') return 'Reproduction';
-    return description || 'Transaction';
+  const getTransactionLabel = (transaction: Transaction) => {
+    // Use animal name as title if available
+    if ((transaction as any).animal_nom) {
+      return (transaction as any).animal_nom;
+    }
+    // Fallback to category or description
+    if (transaction.categorie_id === 'VENTE_ANIMAL') return 'Vente d\'animal';
+    if (transaction.categorie_id === 'ACHAT_ANIMAL') return 'Achat d\'animal';
+    if (transaction.categorie_id === 'ALIMENTATION') return 'Alimentation';
+    if (transaction.categorie_id === 'SANTE') return 'Santé';
+    if (transaction.categorie_id === 'REPRODUCTION') return 'Reproduction';
+    return transaction.description || 'Transaction';
+  };
+
+  const getTransactionSubtitle = (transaction: Transaction) => {
+    // Show type + date as subtitle
+    const typeLabel = transaction.type_transaction === 'ENTREE' ? 'Vente' : 
+                     transaction.type_transaction === 'SORTIE' ? 'Achat' :
+                     transaction.type_transaction === 'TRANSFERT' ? 'Transfert' :
+                     transaction.type_transaction || 'Transaction';
+    const date = formatDate(transaction.date_transaction);
+    return `${typeLabel} - ${date}`;
   };
 
   const formatAmount = (amount: number) => {
+    if (isNaN(amount) || amount === null || amount === undefined) {
+      return '0 XOF';
+    }
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: 'XOF',
@@ -60,13 +72,20 @@ const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, 
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+    if (!dateString) return 'Date inconnue';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Date invalide';
+      return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return 'Date invalide';
+    }
   };
 
   const colors = getTransactionColor(transaction.type_transaction);
   const icon = getTransactionIcon(transaction.type_transaction, transaction.categorie_id);
-  const label = getTransactionLabel(transaction.categorie_id, transaction.description);
+  const label = getTransactionLabel(transaction);
+  const subtitle = getTransactionSubtitle(transaction);
 
   const rightContent = (
     <View style={styles.amountContainer}>
@@ -78,19 +97,9 @@ const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, 
 
   const footer = (
     <View style={styles.footerContent}>
-      <AppText style={styles.footerDate} color="#757575" fontSize={12}>
-        {formatDate(transaction.date_transaction)}
+      <AppText style={styles.footerSubtitle} color="#757575" fontSize={12}>
+        {subtitle}
       </AppText>
-      {transaction.tiers && (
-        <>
-          < AppText style={styles.footerSeparator} color="#9E9E9E" fontSize={12}>
-            •
-          </AppText>
-          <AppText style={styles.footerTiers} color="#9E9E9E" fontSize={12}>
-            {transaction.tiers}
-          </AppText>
-        </>
-      )}
     </View>
   );
 
@@ -119,13 +128,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  footerDate: {
-    fontSize: 12,
-  },
-  footerSeparator: {
-    marginHorizontal: 4,
-  },
-  footerTiers: {
+  footerSubtitle: {
     fontSize: 12,
   },
 });

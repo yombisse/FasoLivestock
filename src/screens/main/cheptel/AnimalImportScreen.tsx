@@ -163,6 +163,7 @@ const AnimalImportScreen = () => {
           poids: animal.poids ? parseFloat(animal.poids) : undefined,
           date_naissance: animal.date_naissance || undefined,
           statut: 'SAIN',
+          origine: 'enregistrement', // Import = enregistrement manuel
         });
       }
       

@@ -28,7 +28,6 @@ import { useAnimals } from '../../../hooks/useAnimals';
 import { useSync } from '../../../hooks/useSync';
 import { useSyncStatus } from '../../../hooks/useSyncStatus';
 import { Theme } from '../../../config/colors';
-import { deleteAnimal } from '../../../database/repositories/animalRepository';
 
 type CheptelListNavigationProp = StackNavigationProp<CheptelStackParamList, 'CheptelList'>;
 
@@ -145,31 +144,6 @@ const CheptelListScreen = () => {
     navigation.navigate('AnimalForm' as any, { animalId: animal.id });
   };
 
-  // Suppression d'animal
-  const handleDeleteAnimal = (animal: any) => {
-    Alert.alert(
-      'Supprimer l\'animal',
-      `Voulez-vous vraiment supprimer "${animal.nom}" ? Cette action est irréversible.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteAnimal(animal.id);
-              console.log('[CheptelListScreen] Animal deleted successfully:', animal.id);
-              Alert.alert('Succès', 'Animal supprimé localement. La synchronisation se fera automatiquement.');
-            } catch (error) {
-              console.error('[CheptelListScreen] Error deleting animal:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer cet animal');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   // Navigation vers formulaire de naissance
   const handleAddAnimal = () => {
     navigation.navigate('AnimalNaissance' as any);
@@ -196,7 +170,6 @@ const CheptelListScreen = () => {
       animal={item} 
       onPress={handleAnimalPress} 
       onEdit={handleEditAnimal}
-      onDelete={handleDeleteAnimal}
       healthStatus={item.etat_sante} 
     />
   );
@@ -262,42 +235,6 @@ const CheptelListScreen = () => {
       </AppHeader>
 
       <View style={styles.content}>
-        {/* Sync status banners - derived from actual sync_status of records */}
-        {failedCount > 0 && (
-          <View style={styles.syncBannerError}>
-            <MaterialCommunityIcons name="alert-circle" size={20} color="#D32F2F" />
-            <AppText style={styles.syncBannerText} color="#D32F2F" fontSize={14}>
-              {failedCount} enregistrement(s) en échec de synchronisation
-            </AppText>
-          </View>
-        )}
-        {pendingCount > 0 && failedCount === 0 && (
-          <View style={styles.syncBannerPending}>
-            <MaterialCommunityIcons name="clock-outline" size={20} color="#F57C00" />
-            <AppText style={styles.syncBannerText} color="#F57C00" fontSize={14}>
-              {pendingCount} enregistrement(s) en attente de synchronisation
-            </AppText>
-          </View>
-        )}
-        {pendingCount === 0 && failedCount === 0 && lastSyncedAt && (
-          <View style={styles.syncBannerSuccess}>
-            <MaterialCommunityIcons name="check-circle" size={20} color="#2E7D32" />
-            <AppText style={styles.syncBannerText} color="#2E7D32" fontSize={14}>
-              Tout est à jour
-            </AppText>
-          </View>
-        )}
-        {lastError && pendingCount === 0 && failedCount === 0 && (
-          <View style={styles.syncBannerError}>
-            <MaterialCommunityIcons name="alert-circle" size={20} color="#D32F2F" />
-            <AppText style={styles.syncBannerText} color="#D32F2F" fontSize={14}>
-              {lastError}
-            </AppText>
-          </View>
-        )}
-
-        
-
         {/* Filtres avec AppTab */}
         <AppTab
           options={filterTabOptions}

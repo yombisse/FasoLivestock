@@ -14,7 +14,7 @@ import AppHeader from '../../../components/AppHeader';
 import AppEmptyState from '../../../components/AppEmptyState';
 import EventDetailModal, { EventDetailModalRef } from '../../../components/EventDetailModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { getEvenementsSanitaires } from '../../../database/repositories/santeEvenementsRepository';
+import { useEvenementsSanitaires } from '../../../hooks/useEvenementsSanitaires';
 import { SanteHistoriqueAnimal } from '../../../types/sante.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 
@@ -31,28 +31,31 @@ const AnimalSanteHistoriqueScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const modalRef = useRef<EventDetailModalRef>(null);
+  const [farmId, setFarmId] = useState<string | null>(null);
 
-  const loadHistorique = async () => {
+  const loadActiveFarm = async () => {
     try {
-      setLoading(true);
-      setError(null);
       const farm = await (await import('../../../storage/farmStorage')).farmStorage.getActiveFarm();
-      if (!farm) {
-        throw new Error('Aucune ferme active');
+      if (farm) {
+        setFarmId(farm.id);
       }
-      const events = await getEvenementsSanitaires(farm.id, animalId);
-      setHistorique({ events } as any);
-    } catch (error: any) {
-      console.error('Error loading health history:', error);
-      setError(error.message || 'Erreur lors du chargement de l\'historique');
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Error loading active farm:', error);
     }
   };
 
+  // Use reactive hook for events
+  const { events: dbEvents, loading: eventsLoading } = useEvenementsSanitaires(farmId || '', animalId);
+
   useEffect(() => {
-    loadHistorique();
-  }, [animalId]);
+    loadActiveFarm();
+  }, []);
+
+  useEffect(() => {
+    if (dbEvents) {
+      setHistorique({ events: dbEvents } as any);
+    }
+  }, [dbEvents]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -106,36 +109,41 @@ const AnimalSanteHistoriqueScreen = () => {
     modalRef.current?.present();
   };
 
-  const renderEventItem = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      style={styles.eventCard}
-      onPress={() => showEventDetails(item)}
-      activeOpacity={0.7}
-    >
-      <View style={[styles.iconContainer, { backgroundColor: `${getEventColor('SANITAIRE')}20` }]}>
-        <MaterialCommunityIcons
-          name={getEventIcon('SANITAIRE')}
-          size={24}
-          color={getEventColor('SANITAIRE')}
-        />
-      </View>
-      <View style={styles.eventContent}>
-        <View style={styles.eventHeader}>
-          <AppText style={styles.eventType} fontWeight="600">
-            {item.type_nom || item.description || 'Événement sanitaire'}
-          </AppText>
-          <AppText style={styles.eventDate} color="#757575" fontSize={12}>
-            {formatDate(item.date_evenement)}
-          </AppText>
+  const renderEventItem = ({ item }: { item: any }) => {
+    const eventType = item.type_nom || item.categorie || 'SANITAIRE';
+    const eventTypeUpper = eventType.toUpperCase();
+
+    return (
+      <TouchableOpacity
+        style={styles.eventCard}
+        onPress={() => showEventDetails(item)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.iconContainer, { backgroundColor: `${getEventColor(eventTypeUpper)}20` }]}>
+          <MaterialCommunityIcons
+            name={getEventIcon(eventTypeUpper)}
+            size={24}
+            color={getEventColor(eventTypeUpper)}
+          />
         </View>
-        {item.cout && (
-          <AppText style={styles.eventAmount} fontWeight="600">
-            Coût: {formatAmount(item.cout)}
-          </AppText>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.eventContent}>
+          <View style={styles.eventHeader}>
+            <AppText style={styles.eventType} fontWeight="600">
+              {item.type_nom || item.description || 'Événement sanitaire'}
+            </AppText>
+            <AppText style={styles.eventDate} color="#757575" fontSize={12}>
+              {formatDate(item.date_evenement)}
+            </AppText>
+          </View>
+          {item.cout && (
+            <AppText style={styles.eventAmount} fontWeight="600">
+              Coût: {formatAmount(item.cout)}
+            </AppText>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmptyState = () => (
     <AppEmptyState
@@ -151,6 +159,8 @@ const AnimalSanteHistoriqueScreen = () => {
         title="Historique sanitaire"
         showBackButton
         onBackPress={() => navigation.goBack()}
+        style={styles.header}
+        showBackground={false}
       />
 
       <View style={styles.content}>
@@ -194,6 +204,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#30A15E',
   },
   content: {
     flex: 1,

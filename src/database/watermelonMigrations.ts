@@ -1,7 +1,7 @@
 import { appSchema,tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 7,
+  version: 11,
   tables: [
     tableSchema({
       name: 'animals',
@@ -12,7 +12,7 @@ export const schema = appSchema({
         { name: 'date_naissance', type: 'string', isOptional: true },
         { name: 'poids', type: 'number', isOptional: true },
         { name: 'farm_id', type: 'string' },
-        { name: 'espece_id', type: 'string', isOptional: true },
+        { name: 'espece_id', type: 'string' },
         { name: 'categorie_id', type: 'string', isOptional: true },
         { name: 'lot_id', type: 'string', isOptional: true },
         { name: 'mother_id', type: 'string', isOptional: true },
@@ -29,7 +29,7 @@ export const schema = appSchema({
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
         { name: 'deleted_at', type: 'number', isOptional: true },
-      
+
       ],
     }),
     tableSchema({
@@ -41,6 +41,7 @@ export const schema = appSchema({
         { name: 'categorie', type: 'string' },
         { name: 'farm_id', type: 'string' },
         { name: 'animal_id', type: 'string', isOptional: true },
+        { name: 'male_id', type: 'string', isOptional: true },
         { name: 'type_evenement_id', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
         { name: 'cout', type: 'number', isOptional: true },
@@ -89,7 +90,6 @@ export const schema = appSchema({
     tableSchema({
       name: 'especes',
       columns: [
-        { name: 'api_id', type: 'string' },
         { name: 'nom', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
         { name: 'last_modified_by', type: 'string', isOptional: true },
@@ -101,7 +101,6 @@ export const schema = appSchema({
     tableSchema({
       name: 'categories',
       columns: [
-        { name: 'api_id', type: 'string' },
         { name: 'nom_categorie', type: 'string' },
         { name: 'type', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
@@ -115,7 +114,6 @@ export const schema = appSchema({
     tableSchema({
       name: 'type_evenements',
       columns: [
-        { name: 'api_id', type: 'string' },
         { name: 'nom_type', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
         { name: 'categorie', type: 'string' },
@@ -144,7 +142,6 @@ export const schema = appSchema({
     tableSchema({
       name: 'farms',
       columns: [
-        { name: 'api_id', type: 'string' },
         { name: 'name', type: 'string' },
         { name: 'location', type: 'string', isOptional: true },
         { name: 'description', type: 'string', isOptional: true },
@@ -207,7 +204,6 @@ export const schema = appSchema({
     tableSchema({
       name: 'farm_user',
       columns: [
-        { name: 'api_id', type: 'string' },
         { name: 'farm_id', type: 'string' },
         { name: 'user_id', type: 'string' },
         { name: 'role', type: 'string', isOptional: true },

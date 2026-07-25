@@ -23,7 +23,7 @@ export async function getLocalEspeces(): Promise<Espece[]> {
 export async function getLocalEspeceById(id: string): Promise<Espece | null> {
   try {
     const especes = await database.get('especes')
-      .query(Q.where('api_id', id))
+      .query(Q.where('id', id))
       .fetch();
     
     if (especes.length > 0) {

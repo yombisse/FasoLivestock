@@ -241,7 +241,7 @@ const HomeScreen = () => {
         onMenuPress={() => (navigation as any).openDrawer()}
         showRightButton
         rightButtonIcon="bell-outline"
-        onRightButtonPress={() => (navigation as any).openDrawer()}
+        onRightButtonPress={() => navigation.navigate('NotificationScreen' as never)}
         showNotificationBadge={healthAlerts.length > 0}
         notificationCount={healthAlerts.length}
         style={styles.headerPrimary}

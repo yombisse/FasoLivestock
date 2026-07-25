@@ -26,6 +26,8 @@ import { TypeEvenementSanitaire, MetadonneesSanitaire } from '../../../types/san
 import { TypeEvenementIds } from '../../../constants/typeEvenements';
 import { Animal } from '../../../types/animal.types';
 import { createEvenementSanitaire } from '../../../database/repositories/santeEvenementsRepository';
+import { creerTransactionDepuisEvenement } from '../../../services/evenementTransactionService';
+import { filterAnimalsForSanitaire } from '../../../database/repositories/animalRepository';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Theme } from '../../../config/colors';
 import { validerEvenementSanitaire } from '../../../utils/santeValidation';
@@ -56,11 +58,20 @@ const SanteCreateScreen = () => {
   const { categories, loading: loadingCategories } = useCategories(farmId || '');
   const { animals, loading: loadingAnimals } = useAnimals(farmId || '');
 
-  // Filter to only show alive and present animals for event creation
-  const availableAnimals = animals.filter((a: any) => {
-    const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
-    return !excludedStatuses.includes(a.statut || '');
-  });
+  // Filtre d'éligibilité local selon le type d'événement sanitaire
+  // Utilise la fonction utilitaire filterAnimalsForSanitaire du repository
+  // Règles backend (calcul local pour mobile offline-first) :
+  // - VACCINATION : Animaux vivants (statut = 'SAIN' ou 'MALADE')
+  // - TRAITEMENT : Animaux malades (statut = 'MALADE')
+  // - CONTRÔLE/MALADIE/SURVEILLANCE : Animaux vivants (statut = 'SAIN' ou 'MALADE')
+  const tabToTypeEvenement: Record<string, string> = {
+    'maladie': 'MALADIE',
+    'vaccination': 'VACCINATION',
+    'surveillance': 'SURVEILLANCE',
+    'traitement': 'TRAITEMENT',
+  };
+  const typeEvenement = tabToTypeEvenement[activeTab];
+  const availableAnimals = filterAnimalsForSanitaire(animals, typeEvenement);
 
   // Filter to only show SANITAIRE type evenements
   const santeTypeEvenements = typeEvenements.filter(
@@ -211,8 +222,26 @@ const SanteCreateScreen = () => {
       });
       console.log('[SanteCreateScreen] Created evenement with ID:', (createdEvent as any).id);
 
-      // NOTE: Transaction is NOT created locally - it will be derived automatically
-      // by EvenementTransactionService on the backend when the event is synced
+      // Create transaction locally if cost > 0 (offline-first architecture)
+      // This ensures consistency with other screens (AnimalAchatScreen, etc.)
+      if (cout && parseFloat(cout) > 0) {
+        try {
+          // Use 'SANTE' as the category name - will be resolved to ID by the service
+          await creerTransactionDepuisEvenement({
+            evenementId: (createdEvent as any).id,
+            farmId: farmId,
+            animalId: selectedAnimal.id,
+            cout: parseFloat(cout),
+            dateEvenement: dateEvent.toISOString().split('T')[0],
+            categorieId: 'SANTE',
+            userId: userId,
+          });
+          console.log('[SanteCreateScreen] Transaction créée localement pour l\'événement sanitaire:', (createdEvent as any).id);
+        } catch (error) {
+          console.error('[SanteCreateScreen] Erreur création transaction:', error);
+          // Ne pas bloquer si la transaction échoue - l'événement est déjà créé
+        }
+      }
 
       console.log('[SanteCreateScreen] Sanitary event submission completed');
 
@@ -237,26 +266,29 @@ const SanteCreateScreen = () => {
   };
 
   const renderMetadataFields = () => {
-    const fields: Array<{ key: keyof MetadonneesSanitaire; label: string; placeholder: string; type?: 'text' | 'select' | 'date'; options?: AppSelectOption[] }> = [];
+    const fields: Array<{ key: keyof MetadonneesSanitaire; label: string; placeholder: string; type?: 'text' | 'select' | 'date'; options?: AppSelectOption[]; optional?: boolean }> = [];
 
     switch (activeTab) {
       case 'vaccination':
+        // Rappel créé automatiquement par backend via espece_parametre.intervalle_vaccin_jours
         fields.push(
           { key: 'nom_vaccin', label: 'Nom du vaccin', placeholder: 'Ex: Rage', type: 'text' },
           { key: 'lot_vaccin', label: 'Lot', placeholder: 'Numéro de lot', type: 'text' },
-          { key: 'date_prochaine', label: 'Date prochaine', placeholder: 'YYYY-MM-DD', type: 'date' },
           { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
         break;
       case 'traitement':
+        // Rappel conditionnel via metadonnees.date_rappel_suggeree
         fields.push(
           { key: 'nom_medicament', label: 'Médicament', placeholder: 'Nom du médicament', type: 'text' },
           { key: 'dosage', label: 'Dosage', placeholder: 'Ex: 2x par jour', type: 'text' },
           { key: 'duree', label: 'Durée', placeholder: 'Ex: 7 jours', type: 'text' },
+          { key: 'date_rappel_suggeree', label: 'Date de rappel (optionnel)', placeholder: 'Pour créer un rappel', type: 'date', optional: true },
           { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
         break;
       case 'maladie':
+        // Pas de rappel pour les maladies
         fields.push(
           { key: 'nom_maladie', label: 'Nom de la maladie *', placeholder: 'Ex: Fièvre aphteuse', type: 'text' },
           { key: 'symptomes', label: 'Symptômes', placeholder: 'Décrire les symptômes', type: 'text' },
@@ -270,9 +302,11 @@ const SanteCreateScreen = () => {
         );
         break;
       case 'surveillance':
+        // Rappel conditionnel via metadonnees.date_prochain_controle
         fields.push(
           { key: 'type_controle', label: 'Type de contrôle', placeholder: 'Ex: Poids, Température', type: 'text' },
           { key: 'resultat', label: 'Résultat', placeholder: 'Résultat du contrôle', type: 'text' },
+          { key: 'date_prochain_controle', label: 'Date prochain contrôle (optionnel)', placeholder: 'Pour créer un rappel', type: 'date', optional: true },
           { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
         break;
@@ -280,7 +314,10 @@ const SanteCreateScreen = () => {
 
     return fields.map(field => (
       <View key={field.key} style={styles.fieldContainer}>
-        <AppText style={styles.label}>{field.label}</AppText>
+        <AppText style={styles.label}>
+          {field.label}
+          {field.optional && <AppText style={styles.optionalLabel}> (optionnel)</AppText>}
+        </AppText>
         {field.type === 'select' && field.options ? (
           <AppSelect
             placeholder={field.placeholder}
@@ -486,6 +523,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
+  },
+  optionalLabel: {
+    color: Theme.textSecondary,
+    fontSize: 14,
+    fontWeight: '400',
   },
   input: {
     backgroundColor: Theme.inputBackground,

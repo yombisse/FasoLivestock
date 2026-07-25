@@ -87,24 +87,70 @@ const EventDetailModal = forwardRef<EventDetailModalRef, EventDetailModalProps>(
 
       if (entries.length === 0) return null;
 
+      const formatMetadataValue = (key: string, value: any): string => {
+        // Handle date formatting
+        if (key === 'date_prochaine' && value) {
+          return formatDate(value);
+        }
+
+        // Handle arrays - join with commas
+        if (Array.isArray(value)) {
+          return value.map((item) => {
+            if (typeof item === 'object' && item !== null) {
+              return item.nom || item.name || item.libelle || item.label || JSON.stringify(item);
+            }
+            return String(item);
+          }).join(', ');
+        }
+
+        // Handle objects - extract meaningful info
+        if (typeof value === 'object' && value !== null) {
+          // If it's a simple object with known structure, extract meaningful info
+          if (value.nom) return value.nom;
+          if (value.name) return value.name;
+          if (value.libelle) return value.libelle;
+          if (value.label) return value.label;
+          if (value.id) return value.id;
+          if (value.value) return value.value;
+          
+          // For objects with multiple properties, create a readable string
+          const entries = Object.entries(value)
+            .filter(([k, v]) => v !== null && v !== undefined && typeof v !== 'object')
+            .map(([k, v]) => `${k}: ${v}`);
+          
+          if (entries.length > 0) {
+            return entries.join(', ');
+          }
+          
+          // Otherwise skip complex objects
+          return '';
+        }
+
+        // Handle strings, numbers, booleans
+        return String(value);
+      };
+
       return (
         <View style={styles.section}>
           <AppText style={styles.sectionTitle} fontWeight="600" color="#757575">
             Détails supplémentaires
           </AppText>
           <View style={styles.card}>
-            {entries.map(([key, value]) => (
-              <View key={key} style={styles.metadataRow}>
-                <AppText style={styles.metadataLabel} color="#757575" fontSize={13}>
-                  {metadataLabels[key] || key}
-                </AppText>
-                <AppText style={styles.metadataValue} fontWeight="500" fontSize={14}>
-                  {key === 'date_prochaine' && value
-                    ? formatDate(value)
-                    : String(value)}
-                </AppText>
-              </View>
-            ))}
+            {entries.map(([key, value]) => {
+              const formattedValue = formatMetadataValue(key, value);
+              if (!formattedValue) return null; // Skip empty or complex objects
+
+              return (
+                <View key={key} style={styles.metadataRow}>
+                  <AppText style={styles.metadataLabel} color="#757575" fontSize={13}>
+                    {metadataLabels[key] || key}
+                  </AppText>
+                  <AppText style={styles.metadataValue} fontWeight="500" fontSize={14}>
+                    {formattedValue}
+                  </AppText>
+                </View>
+              );
+            })}
           </View>
         </View>
       );
@@ -324,7 +370,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   metadataLabel: {
-    flex: 1,
+    width: 140,
   },
   metadataValue: {
     flex: 1,

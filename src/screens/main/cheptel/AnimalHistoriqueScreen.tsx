@@ -172,6 +172,8 @@ const AnimalHistoriqueScreen = () => {
         title="Historique des mouvements"
         showBackButton
         onBackPress={() => navigation.goBack()}
+        style={styles.header}
+        showBackground={false}
       />
 
       <View style={styles.content}>
@@ -224,6 +226,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#30A15E',
   },
   content: {
     flex: 1,

@@ -148,7 +148,7 @@ export async function deleteFarmUser(id: string): Promise<void> {
     await database.write(async () => {
       const collection = database.get('farm_user');
       const farmUser = await collection.find(id);
-      await farmUser.destroyPermanently();
+      await farmUser.markAsDeleted();
     });
 
     console.log('[FarmUserRepository] Deleted farm_user:', id);
@@ -167,7 +167,7 @@ export async function deleteFarmUsersByFarmId(farmId: string): Promise<void> {
       const collection = database.get('farm_user');
       const farmUsers = await collection.query(Q.where('farm_id', farmId)).fetch();
       for (const farmUser of farmUsers) {
-        await farmUser.destroyPermanently();
+        await farmUser.markAsDeleted();
       }
     });
 

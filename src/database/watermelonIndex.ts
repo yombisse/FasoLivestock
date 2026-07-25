@@ -1,5 +1,6 @@
 import { Database } from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
+import { setGenerator } from '@nozbe/watermelondb/utils/common/randomId';
 import { schema } from './watermelonMigrations';
 import { Q } from '@nozbe/watermelondb';
 import { Animal } from './models/Animal';
@@ -14,6 +15,11 @@ import { Naissance } from './models/Naissance';
 import { Notification } from './models/Notification';
 import { FarmUser } from './models/FarmUser';
 import { SanteRappel } from './models/SanteRappel';
+import { generateUUID } from '../utils/uuid';
+
+// Configurer le générateur d'ID global pour WatermelonDB
+// Génère des IDs de 20 caractères alphanumériques conformes au backend
+setGenerator(generateUUID);
 
 const adapter = new SQLiteAdapter({
   schema,

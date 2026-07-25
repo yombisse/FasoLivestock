@@ -14,7 +14,7 @@ import AppHeader from '../../../components/AppHeader';
 import AppEmptyState from '../../../components/AppEmptyState';
 import EventDetailModal, { EventDetailModalRef } from '../../../components/EventDetailModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { getLocalTransactions } from '../../../database/repositories/transactionRepository';
+import { observeLocalTransactions } from '../../../database/repositories/transactionRepository';
 import { TransactionHistoriqueAnimal } from '../../../types/transaction.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 
@@ -31,19 +31,28 @@ const AnimalTransactionHistoriqueScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const modalRef = useRef<EventDetailModalRef>(null);
+  const [farmId, setFarmId] = useState<string | null>(null);
 
-  const loadHistorique = async () => {
+  const loadActiveFarm = async () => {
     try {
-      setLoading(true);
-      setError(null);
-
       const farm = await (await import('../../../storage/farmStorage')).farmStorage.getActiveFarm();
-      if (!farm) {
-        throw new Error('Aucune ferme active');
+      if (farm) {
+        setFarmId(farm.id);
       }
+    } catch (error) {
+      console.error('Error loading active farm:', error);
+    }
+  };
 
-      const transactions = await getLocalTransactions(farm.id, animalId);
+  useEffect(() => {
+    loadActiveFarm();
+  }, []);
 
+  // Use reactive observable for transactions
+  useEffect(() => {
+    if (!farmId) return;
+
+    const subscription = observeLocalTransactions(farmId, animalId).subscribe((transactions) => {
       // Calculate statistics
       const total_revenus = transactions
         .filter((t: any) => t.type_transaction === 'ENTREE')
@@ -61,17 +70,11 @@ const AnimalTransactionHistoriqueScreen = () => {
           bilan: total_revenus - total_charges,
         },
       } as any);
-    } catch (error: any) {
-      console.error('Error loading transaction history:', error);
-      setError(error.message || 'Erreur lors du chargement de l\'historique');
-    } finally {
       setLoading(false);
-    }
-  };
+    });
 
-  useEffect(() => {
-    loadHistorique();
-  }, [animalId]);
+    return () => subscription.unsubscribe();
+  }, [farmId, animalId]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -151,6 +154,8 @@ const AnimalTransactionHistoriqueScreen = () => {
         title="Historique transactionnel"
         showBackButton
         onBackPress={() => navigation.goBack()}
+        style={styles.header}
+        showBackground={false}
       />
 
       <View style={styles.content}>
@@ -221,6 +226,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#30A15E',
   },
   content: {
     flex: 1,

@@ -10,31 +10,52 @@ export interface SyncResult {
 }
 
 /**
- * Custom conflict resolver to prevent duplicates during sync pull
- * This ensures that if the server sends back a record with the same ID as a local record,
- * the local record is updated instead of creating a duplicate.
+ * Custom conflict resolver implementing client-wins-per-column strategy
+ * WatermelonDB 0.28.0: conflictResolver must RETURN resolved data, not call a callback.
+ * 
+ * Strategy:
+ * 1. Start with remote (server version) as base
+ * 2. For each column in local._changed (columns modified locally since last sync),
+ *    reapply the local value on top of remote to preserve unsynced user changes
+ * 3. Return the merged object
+ * 
+ * This ensures no unsynced user input is lost while accepting server updates
+ * for unmodified columns.
  */
-const conflictResolver = async ({ local, remote, resolved }: any) => {
-  if (!local || !local.id) {
-    console.log('[ConflictResolver] Local record is missing or has no ID, using remote version');
-    resolved(remote);
-    return;
+const conflictResolver = async ({ local, remote }: any) => {
+  console.log('[ConflictResolver] Called with local:', local, 'remote:', remote);
+  
+  // If no remote version, return local
+  if (!remote) {
+    return local;
   }
   
-  console.log('[ConflictResolver] Resolving conflict for record:', local.id);
-  
-  // Use the remote version (server truth) but preserve local sync_status if it's pending
-  const resolvedData = { ...remote };
-  
-  // If local was pending sync, keep it as pending to ensure it gets pushed
-  if (local.sync_status === 'pending') {
-    resolvedData.sync_status = 'pending';
-  } else {
-    // Mark as synced after successful pull
-    resolvedData.sync_status = 'synced';
+  // If no local version (record doesn't exist locally), return remote for creation
+  if (!local) {
+    console.log('[ConflictResolver] No local record, returning remote for creation');
+    return remote;
   }
   
-  resolved(resolvedData);
+  // Start with remote as base
+  const merged = { ...remote };
+  
+  // Reapply locally modified columns on top of remote
+  // _changed is a comma-separated string of column names modified locally since last sync
+  const changedColumns = (local._changed || '').split(',').filter((c: string) => c.length > 0);
+  
+  if (changedColumns.length > 0) {
+    console.log('[ConflictResolver] Locally changed columns:', changedColumns);
+    
+    changedColumns.forEach((column: string) => {
+      if (local[column] !== undefined) {
+        merged[column] = local[column];
+        console.log(`[ConflictResolver] Merging column '${column}': local value preserved`);
+      }
+    });
+  }
+  
+  console.log('[ConflictResolver] Merged result:', merged);
+  return merged;
 };
 
 export async function syncWatermelon(farmId: string): Promise<SyncResult> {
@@ -52,8 +73,7 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
     await synchronize({
       database,
       pullChanges: async ({ lastPulledAt, schemaVersion }) => {
-        console.log('[WatermelonSync] Pulling changes since:', lastPulledAt);
-        console.log('[AUDIT] Pull - lastPulledAt before pull:', lastPulledAt, 'type:', typeof lastPulledAt);
+        console.log('[WatermelonSync] Pulling changes since:', lastPulledAt ? new Date(lastPulledAt).toISOString() : 'null');
         
         // Convert timestamp number to ISO string for backend
         const lastSyncAt = lastPulledAt ? new Date(lastPulledAt).toISOString() : null;
@@ -72,44 +92,18 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
 
         const { changes, timestamp } = response.data.data;
         console.log('[WatermelonSync] Pull received changes:', Object.keys(changes).length, 'tables');
-        console.log('[WatermelonSync] Tables received:', Object.keys(changes));
         
-        // Log raw data from backend for each table
-        const referenceTables = ['especes', 'categories', 'type_evenements', 'farm_user', 'farms'];
-        Object.keys(changes).forEach(tableName => {
-          const tableType = referenceTables.includes(tableName) ? 'REFERENCE TABLE' : 'BUSINESS TABLE';
-          const tableChanges = changes[tableName];
-          console.log(`[AUDIT] ${tableType} - ${tableName} RAW backend data:`, JSON.stringify(tableChanges, null, 2));
-          
-          // Special logging for transactions to check montant values
-          if (tableName === 'transactions') {
-            console.log('[AUDIT] TRANSACTIONS - Checking montant values:');
-            if (tableChanges.created && tableChanges.created.length > 0) {
-              tableChanges.created.forEach((trx: any, idx: number) => {
-                console.log(`[AUDIT] Transaction created[${idx}]:`, {
-                  id: trx.id,
-                  montant: trx.montant,
-                  montant_type: typeof trx.montant,
-                  montant_is_zero: trx.montant === 0,
-                  montant_is_null: trx.montant === null,
-                  montant_is_undefined: trx.montant === undefined,
-                });
-              });
-            }
-            if (tableChanges.updated && tableChanges.updated.length > 0) {
-              tableChanges.updated.forEach((trx: any, idx: number) => {
-                console.log(`[AUDIT] Transaction updated[${idx}]:`, {
-                  id: trx.id,
-                  montant: trx.montant,
-                  montant_type: typeof trx.montant,
-                  montant_is_zero: trx.montant === 0,
-                  montant_is_null: trx.montant === null,
-                  montant_is_undefined: trx.montant === undefined,
-                });
-              });
-            }
+        // Essential logging for evenements
+        if (changes.evenements) {
+          console.log('[WatermelonSync] EVENEMENTS - created:', changes.evenements.created?.length || 0, 'updated:', changes.evenements.updated?.length || 0, 'deleted:', changes.evenements.deleted?.length || 0);
+          if (changes.evenements.created?.length > 0) {
+            console.log('[WatermelonSync] EVENEMENTS SAMPLE:', changes.evenements.created[0]);
           }
-        });
+        }
+        
+        // Essential logging for animals and transactions
+        console.log('[WatermelonSync] ANIMALS - created:', changes.animals?.created?.length || 0, 'updated:', changes.animals?.updated?.length || 0);
+        console.log('[WatermelonSync] TRANSACTIONS - created:', changes.transactions?.created?.length || 0, 'updated:', changes.transactions?.updated?.length || 0);
         
         // Clean nested data from farms (owner, users) before passing to WatermelonDB
         if (changes.farms) {
@@ -125,11 +119,9 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
             const { owner, users, ...cleanFarm } = farm;
             return cleanFarm;
           });
-          console.log('[AUDIT] Cleaned nested data from farms (including deleted)');
         }
         
         // Convert ISO timestamps to milliseconds for WatermelonDB compatibility
-        // Note: date_transaction is stored as string in schema, not converted to milliseconds
         const convertTimestamps = (record: any) => {
           const timestampFields = ['created_at', 'updated_at', 'deleted_at', 'last_sync_at', 'date_naissance', 'date_evenement'];
           const numericFields = ['montant', 'cout', 'poids', 'poids_naissance', 'nombre', 'nombre_petits'];
@@ -137,10 +129,7 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
           
           timestampFields.forEach(field => {
             if (converted[field] && typeof converted[field] === 'string') {
-              console.log(`[AUDIT] Converting ${field} from ${converted[field]} to ${new Date(converted[field]).getTime()}`);
               converted[field] = new Date(converted[field]).getTime();
-            } else if (converted[field] === null) {
-              console.log(`[AUDIT] Field ${field} is null, keeping as null`);
             }
           });
           
@@ -148,7 +137,6 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
             if (converted[field] !== null && converted[field] !== undefined && typeof converted[field] === 'string') {
               const numValue = parseFloat(converted[field]);
               if (!isNaN(numValue)) {
-                console.log(`[AUDIT] Converting ${field} from string '${converted[field]}' to number ${numValue}`);
                 converted[field] = numValue;
               }
             }
@@ -164,90 +152,18 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
           if (changes[tableName].updated) {
             changes[tableName].updated = changes[tableName].updated.map(convertTimestamps);
           }
-          if (changes[tableName].deleted) {
-            changes[tableName].deleted = changes[tableName].deleted.map(convertTimestamps);
-          }
         });
-        console.log('[AUDIT] Converted ISO timestamps to milliseconds');
-        
-        // Log data after conversion with schema comparison
-        Object.keys(changes).forEach(tableName => {
-          const tableType = referenceTables.includes(tableName) ? 'REFERENCE TABLE' : 'BUSINESS TABLE';
-          console.log(`[AUDIT] ${tableType} - ${tableName} FINAL data for WatermelonDB:`, JSON.stringify(changes[tableName], null, 2));
-          
-          // Log schema fields for comparison
-          if (changes[tableName].created && changes[tableName].created.length > 0) {
-            const sampleRecord = changes[tableName].created[0];
-            console.log(`[AUDIT] ${tableName} - Fields in data:`, Object.keys(sampleRecord));
-            console.log(`[AUDIT] ${tableName} - Field types:`, Object.keys(sampleRecord).reduce((acc: any, key) => {
-              acc[key] = typeof sampleRecord[key];
-              return acc;
-            }, {}));
-            
-            // Log each field value in detail for debugging
-            console.log(`[AUDIT] ${tableName} - Detailed field values:`, Object.keys(sampleRecord).reduce((acc: any, key) => {
-              acc[key] = { value: sampleRecord[key], type: typeof sampleRecord[key], isNull: sampleRecord[key] === null, isUndefined: sampleRecord[key] === undefined };
-              return acc;
-            }, {}));
-            
-            // Log complete detailed values for debugging
-            try {
-              const detailedValues = Object.keys(sampleRecord).reduce((acc: any, key) => {
-                acc[key] = { value: sampleRecord[key], type: typeof sampleRecord[key], isNull: sampleRecord[key] === null, isUndefined: sampleRecord[key] === undefined };
-                return acc;
-              }, {});
-              console.log(`[AUDIT] ${tableName} - Complete detailed values:`, JSON.stringify(detailedValues, null, 2));
-            } catch (e) {
-              console.error(`[AUDIT] ${tableName} - Error logging detailed values:`, e);
-            }
-          }
-        });
-        
-        // Log detailed changes for each table to identify problematic records
-        Object.keys(changes).forEach(tableName => {
-          const tableChanges = changes[tableName];
-          console.log(`[AUDIT] Table ${tableName}:`, {
-            created: tableChanges.created?.map((r: any) => ({ 
-              id: r.id, 
-              id_type: typeof r.id,
-              keys: Object.keys(r),
-              sample_values: Object.keys(r).slice(0, 5).map(k => ({ key: k, value: r[k], type: typeof r[k] }))
-            })),
-            updated: tableChanges.updated?.map((r: any) => ({ 
-              id: r.id, 
-              id_type: typeof r.id,
-              keys: Object.keys(r),
-              sample_values: Object.keys(r).slice(0, 5).map(k => ({ key: k, value: r[k], type: typeof r[k] }))
-            })),
-            deleted: tableChanges.deleted?.map((r: any) => ({ id: r.id, id_type: typeof r.id })),
-          });
-        });
-        
-        console.log('[WatermelonSync] Especes in changes:', 'especes' in changes, changes.especes?.length || 0);
-        console.log('[WatermelonSync] Especes data:', changes.especes);
         
         // Convert ISO timestamp to number (milliseconds) as required by WatermelonDB
         const timestampMs = new Date(timestamp).getTime();
-        console.log('[AUDIT] Pull - new timestamp from backend:', timestamp, 'converted to ms:', timestampMs);
         
-        console.log('[AUDIT] About to return changes to WatermelonDB for applyRemoteChanges');
-        console.log('[AUDIT] Changes structure:', Object.keys(changes).reduce((acc: any, tableName) => {
-          acc[tableName] = {
-            created_count: changes[tableName].created?.length || 0,
-            updated_count: changes[tableName].updated?.length || 0,
-            deleted_count: changes[tableName].deleted?.length || 0,
-          };
-          return acc;
-        }, {}));
-        
+        console.log('[WatermelonSync] About to apply changes to WatermelonDB');
         return { changes, timestamp: timestampMs };
       },
       pushChanges: async ({ changes, lastPulledAt }) => {
         console.log('[WatermelonSync] Pushing changes:', Object.keys(changes).length, 'tables');
-        console.log('[AUDIT] Push - lastPulledAt before push:', lastPulledAt, 'type:', typeof lastPulledAt);
 
         // Filter out reference tables that are synced only via initial sync
-        // These tables contain global/system data that should not be pushed
         const referenceTables = ['especes', 'categories', 'type_evenements', 'farm_user', 'farms'];
         const filteredChanges = { ...changes } as any;
         
@@ -258,7 +174,6 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
               updated: [],
               deleted: [],
             };
-            console.log(`[WatermelonSync] Filtered out reference table: ${table}`);
           }
         });
 
@@ -272,35 +187,21 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
               (trx: any) => !trx.evenement_id
             ),
           };
-          console.log('[WatermelonSync] Filtered out',
-            (filteredChanges.transactions.created?.length || 0) + (filteredChanges.transactions.updated?.length || 0),
-            'transactions linked to events');
         }
 
         // Map field names to match backend schema (nom -> nom_lot for lots table) in push
         if (filteredChanges.lots) {
-          console.log('[AUDIT] PUSH - Lots before mapping:', JSON.stringify(filteredChanges.lots, null, 2));
           const mapLotFields = (lot: any) => {
             const mapped = { ...lot };
-            console.log('[AUDIT] PUSH - Mapping lot:', {
-              id: lot.id,
-              has_nom: 'nom' in lot,
-              has_nom_lot: 'nom_lot' in lot,
-              nom_value: lot.nom,
-              nom_lot_value: lot.nom_lot,
-            });
             if (mapped.nom !== undefined && mapped.nom_lot === undefined) {
               mapped.nom_lot = mapped.nom;
               delete mapped.nom;
-              console.log('[AUDIT] PUSH - Converted nom to nom_lot for lot:', lot.id);
             }
             return mapped;
           };
           
           filteredChanges.lots.created = (filteredChanges.lots.created || []).map(mapLotFields);
           filteredChanges.lots.updated = (filteredChanges.lots.updated || []).map(mapLotFields);
-          filteredChanges.lots.deleted = (filteredChanges.lots.deleted || []).map(mapLotFields);
-          console.log('[AUDIT] PUSH - Lots after mapping:', JSON.stringify(filteredChanges.lots, null, 2));
         }
 
         // Count total items in payload and track IDs for validation
@@ -318,23 +219,10 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
           }
           if (tableChanges.deleted) {
             totalItems += tableChanges.deleted.length;
-            pushedIds[tableName] = [...(pushedIds[tableName] || []), ...tableChanges.deleted.map((r: any) => r.id)];
+            pushedIds[tableName] = [...(pushedIds[tableName] || []), ...tableChanges.deleted];
           }
         });
         console.log('[WatermelonSync] Total items to push:', totalItems);
-        console.log('[WatermelonSync] Pushed IDs by table:', pushedIds);
-
-        // Log detailed changes for debugging
-        console.log('[WatermelonSync] Detailed changes:', JSON.stringify(filteredChanges, null, 2));
-        console.log('[AUDIT] Push payload before HTTP:', {
-          farm_id: farmId,
-          last_sync_at: lastPulledAt ? new Date(lastPulledAt).toISOString() : null,
-          total_items: totalItems,
-          tables_with_changes: Object.keys(filteredChanges).filter(t => {
-            const tc = filteredChanges[t];
-            return (tc.created?.length || 0) + (tc.updated?.length || 0) + (tc.deleted?.length || 0) > 0;
-          }),
-        });
 
         // NOTE: Backend has MAX_CHUNK_SIZE = 200 items limit
         // For demo purposes, we recommend raising this limit to 500 or 1000 on the backend
@@ -347,36 +235,13 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
           last_sync_at: lastPulledAt ? new Date(lastPulledAt).toISOString() : null,
         });
 
-        console.log('[WatermelonSync] Push response:', JSON.stringify(response.data, null, 2));
-        console.log('[AUDIT] Push - response received:', {
-          success: response.data.success,
-          message: response.data.message,
-          synced_at: response.data.data?.synced_at,
-        });
+        console.log('[WatermelonSync] Push response success:', response.data.success);
 
-        // INSTRUMENTED VALIDATION: Parse backend response structure
         const results = response.data.data?.results || {};
         console.log('[WatermelonSync] Server results:', results);
 
-        // Validate that response contains results object
         if (!results || typeof results !== 'object') {
-          const errorMsg = 'Server response missing data.results - cannot verify sync success';
-          console.error('[WatermelonSync] ERROR:', errorMsg);
-          
-          // Log the failure
-          await database.write(async () => {
-            await database.get('sync_logs').create((log: any) => {
-              log.farm_id = farmId;
-              log.table_name = 'multiple';
-              log.sync_type = 'push';
-              log.status = 'failed';
-              log.error_message = errorMsg;
-              log.payload = JSON.stringify({ response: response.data });
-              log.created_at = Date.now();
-            });
-          });
-          
-          throw new Error(errorMsg);
+          throw new Error('Server response missing data.results');
         }
 
         // Process results for each module
@@ -396,11 +261,10 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
             const confirmed = moduleResult.confirmed || [];
             const rejected = moduleResult.rejected || [];
 
-            console.log(`[WatermelonSync] Processing ${tableName}: ${confirmed.length} confirmed, ${rejected.length} rejected`);
+            console.log(`[WatermelonSync] ${tableName}: ${confirmed.length} confirmed, ${rejected.length} rejected`);
             totalConfirmed += confirmed.length;
             totalRejected += rejected.length;
 
-            // Mark confirmed records as synced
             for (const recordId of confirmed) {
               try {
                 const record = await database.get(tableName).find(recordId);
@@ -409,45 +273,25 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
                   r.sync_error = null;
                   r.server_confirmed_at = Date.now();
                 });
-                console.log(`[WatermelonSync] Marked record ${recordId} in ${tableName} as synced`);
               } catch (error) {
-                console.error(`[WatermelonSync] Error marking record ${recordId} in ${tableName} as synced:`, error);
+                console.error(`[WatermelonSync] Error marking ${recordId} as synced:`, error);
               }
             }
 
-            // Mark rejected records with error details
             for (const rejectedItem of rejected) {
               try {
                 const record = await database.get(tableName).find(rejectedItem.id);
-                const errorDetails = {
-                  code: rejectedItem.code,
-                  reason: rejectedItem.reason,
-                  client_version: rejectedItem.client_version,
-                  server_version: rejectedItem.server_version,
-                  existing_id: rejectedItem.existing_id,
-                };
-                
                 await record.update((r: any) => {
                   r.sync_status = 'failed';
-                  r.sync_error = JSON.stringify(errorDetails);
+                  r.sync_error = JSON.stringify({
+                    code: rejectedItem.code,
+                    reason: rejectedItem.reason,
+                  });
                   r.last_push_attempt_at = Date.now();
                 });
-                
-                console.log(`[WatermelonSync] Marked record ${rejectedItem.id} in ${tableName} as rejected: ${rejectedItem.code}`);
-                
-                // Log rejection for debugging
-                await database.get('sync_logs').create((log: any) => {
-                  log.farm_id = farmId;
-                  log.table_name = tableName;
-                  log.record_id = rejectedItem.id;
-                  log.sync_type = 'push';
-                  log.status = 'rejected';
-                  log.error_message = rejectedItem.reason;
-                  log.payload = JSON.stringify(errorDetails);
-                  log.created_at = Date.now();
-                });
+                console.log(`[WatermelonSync] ${rejectedItem.id} rejected: ${rejectedItem.code}`);
               } catch (error) {
-                console.error(`[WatermelonSync] Error marking record ${rejectedItem.id} in ${tableName} as rejected:`, error);
+                console.error(`[WatermelonSync] Error marking ${rejectedItem.id} as rejected:`, error);
               }
             }
           }
@@ -464,8 +308,7 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
               const unprocessedIds = pushedIds[tableName].filter((id: string) => !processedIds.has(id));
               
               if (unprocessedIds.length > 0) {
-                console.log(`[WatermelonSync] Marking ${unprocessedIds.length} unprocessed records in ${tableName} as failed`);
-                
+                console.log(`[WatermelonSync] ${unprocessedIds.length} unprocessed in ${tableName}`);
                 for (const recordId of unprocessedIds) {
                   try {
                     const record = await database.get(tableName).find(recordId);
@@ -474,9 +317,8 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
                       r.sync_error = 'Server did not include this record in response';
                       r.last_push_attempt_at = Date.now();
                     });
-                    console.log(`[WatermelonSync] Marked record ${recordId} in ${tableName} as failed (unprocessed)`);
                   } catch (error) {
-                    console.error(`[WatermelonSync] Error marking record ${recordId} in ${tableName} as failed (unprocessed):`, error);
+                    console.error(`[WatermelonSync] Error marking ${recordId} as failed:`, error);
                   }
                 }
               }
@@ -488,14 +330,28 @@ export async function syncWatermelon(farmId: string): Promise<SyncResult> {
         return response.data;
       },
       // CONFLICT RESOLUTION STRATEGY:
-      // Using custom conflict resolver to prevent duplicates during sync pull.
-      // This ensures that if the server sends back a record with the same ID as a local record,
-      // the local record is updated instead of creating a duplicate.
+      // Using custom conflict resolver implementing client-wins-per-column strategy.
+      // This ensures that when a conflict occurs (same record modified on both client and server),
+      // the server version is used as base, but locally modified columns (since last sync) are preserved.
+      // This prevents loss of unsynced user input while accepting server updates for unmodified columns.
       conflictResolver,
       migrationsEnabledAtVersion: undefined, // Disable migrations for now (JSI not available in dev mode)
+      sendCreatedAsUpdated: true, // Backend sends all changes in 'updated' array to avoid UNIQUE constraint issues
     });
 
     console.log('[WatermelonSync] Sync completed successfully');
+    
+    // Log data stored in WatermelonDB after sync
+    const evenementsCount = await database.get('evenements').query().fetchCount();
+    const animalsCount = await database.get('animals').query().fetchCount();
+    const transactionsCount = await database.get('transactions').query().fetchCount();
+    console.log('[WatermelonSync] After sync - EVENEMENTS in DB:', evenementsCount, 'ANIMALS:', animalsCount, 'TRANSACTIONS:', transactionsCount);
+    
+    if (evenementsCount > 0) {
+      const sampleEvent = await database.get('evenements').query().fetch();
+      console.log('[WatermelonSync] SAMPLE EVENT FROM DB:', sampleEvent[0]);
+    }
+    
     return { success: true };
   } catch (error: any) {
     console.error('[WatermelonSync] Sync failed:', error);

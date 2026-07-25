@@ -6,7 +6,7 @@ import AppHeader from '../../components/AppHeader';
 import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import AppImage from '../../components/AppImage';
-import { getDashboard } from '../../services/dashboard.service';
+import { useDashboard } from '../../hooks/useDashboard';
 import { farmStorage } from '../../storage/farmStorage';
 import database from '../../database/watermelonIndex';
 import { Q } from '@nozbe/watermelondb';
@@ -19,67 +19,33 @@ const Dashboard = () => {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [fromCache, setFromCache] = useState<boolean>(false);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [farmId, setFarmId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  const loadDashboard = async () => {
+  const loadActiveFarm = async () => {
     try {
-      setLoading(true);
-      setError(null);
-
       const farm = await farmStorage.getActiveFarm();
-      if (!farm) {
+      if (farm) {
+        setFarmId(farm.id);
+      } else {
         setError('Aucune ferme active sélectionnée');
-        return;
       }
-
-      // Use WatermelonDB for offline-first pattern
-      const animalsCollection = database.get('animals');
-      const evenementsCollection = database.get('evenements');
-      
-      // Get active animals count (alive and present - exclude MORT, VENDU, PERDU)
-      const allAnimals = await animalsCollection
-        .query(Q.where('farm_id', farm.id))
-        .fetch();
-      const activeAnimals = allAnimals.filter((animal: any) => {
-        const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
-        return !excludedStatuses.includes(animal._raw.statut || '');
-      });
-      
-      // Get total animals count
-      const totalAnimals = await animalsCollection
-        .query(Q.where('farm_id', farm.id))
-        .fetch();
-      
-      // Get events count
-      const totalEvents = await evenementsCollection
-        .query(Q.where('farm_id', farm.id))
-        .fetch();
-      
-      // Get gender breakdown
-      const males = await animalsCollection
-        .query(Q.where('farm_id', farm.id), Q.where('sexe', 'male'))
-        .fetch();
-      
-      const females = await animalsCollection
-        .query(Q.where('farm_id', farm.id), Q.where('sexe', 'femelle'))
-        .fetch();
-      
-      setDashboardData({
-        total_animaux: totalAnimals.length,
-        animaux_actifs: activeAnimals.length,
-        total_evenements: totalEvents.length,
-        animaux_males: males.length,
-        animaux_femelles: females.length,
-      });
-    } catch (err: any) {
-      setError(err.message || 'Erreur lors du chargement du tableau de bord');
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Error loading active farm:', error);
     }
   };
+
+  useEffect(() => {
+    loadActiveFarm();
+  }, []);
+
+  // Use reactive hook for dashboard data
+  const { dashboardData: dbDashboardData, loading: dashboardLoading } = useDashboard(farmId || '');
+
+  useEffect(() => {
+    if (dbDashboardData) {
+      setDashboardData(dbDashboardData);
+    }
+  }, [dbDashboardData]);
 
   const formatCachedDate = (dateString: string) => {
     const date = new Date(dateString);

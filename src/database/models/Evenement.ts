@@ -11,6 +11,7 @@ export class Evenement extends Model {
   @field('categorie') categorie!: string;
   @field('farm_id') farm_id!: string;
   @field('animal_id') animal_id!: string;
+  @field('male_id') male_id!: string;
   @field('type_evenement_id') type_evenement_id!: string;
   @field('description') description!: string;
   @field('cout') cout!: number;
@@ -19,7 +20,7 @@ export class Evenement extends Model {
   @field('statut_apres') statut_apres!: string;
   @field('transaction_id') transaction_id!: string;
   @field('metadonnees') metadonnees!: string;
-  @field('sync_status') sync_status!: 'synced' | 'pending' | 'conflict' | 'failed';
+  @field('sync_status') sync_status!: 'synced' | 'pending' | 'conflict';
   @field('sync_error') sync_error?: string;
   @field('last_push_attempt_at') last_push_attempt_at?: number;
   @field('server_confirmed_at') server_confirmed_at?: number;

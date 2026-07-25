@@ -74,31 +74,7 @@ const FarmPickerScreen = () => {
           }
         } catch (syncError: any) {
           console.error('[FarmPickerScreen] Initial sync failed:', syncError);
-          
-          // Check if it's a schema migration error (missing api_id column)
-          if (syncError.message && syncError.message.includes('SCHEMA_MIGRATION_REQUIRED')) {
-            console.log('[FarmPickerScreen] Schema migration error detected, forcing database reset');
-            try {
-              await database.unsafeResetDatabase();
-              console.log('[FarmPickerScreen] Database reset completed, retrying initial sync');
-              
-              // Retry initial sync after reset
-              const syncResponse = await syncService.initialSync();
-              const apiFarms = syncResponse.data.data.data.farms;
-              
-              if (apiFarms.length === 0) {
-                setError('Aucune ferme disponible. Contactez votre administrateur.');
-              } else {
-                setFarms(apiFarms);
-                await loadActiveFarm();
-              }
-            } catch (retryError: any) {
-              console.error('[FarmPickerScreen] Retry after database reset failed:', retryError);
-              setError('Échec de la synchronisation après réinitialisation. Veuillez réinstaller l\'application.');
-            }
-          } else {
-            setError('Échec de la synchronisation initiale. Vérifiez votre connexion et réessayez.');
-          }
+          setError(syncError.message || 'Erreur lors de la synchronisation');
         } finally {
           setSyncing(false);
         }
@@ -109,7 +85,7 @@ const FarmPickerScreen = () => {
 
         if (localFarms.length > 0) {
           const farmsData = localFarms.map((farm: any) => ({
-            id: farm.api_id, // Use api_id for API compatibility
+            id: farm.id,
             name: farm.name,
             location: farm.location,
             description: farm.description,

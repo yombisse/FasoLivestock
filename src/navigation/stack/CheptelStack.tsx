@@ -15,6 +15,10 @@ import AnimalSanteHistoriqueScreen from '../../screens/main/cheptel/AnimalSanteH
 import AnimalReproductionHistoriqueScreen from '../../screens/main/cheptel/AnimalReproductionHistoriqueScreen';
 import AnimalTransactionHistoriqueScreen from '../../screens/main/cheptel/AnimalTransactionHistoriqueScreen';
 import AnimalHistoryScreen from '../../screens/main/cheptel/AnimalHistoryScreen';
+import LotCreateScreen from '../../screens/main/cheptel/LotCreateScreen';
+import LotAssignScreen from '../../screens/main/cheptel/LotAssignScreen';
+import LotVenteScreen from '../../screens/main/cheptel/LotVenteScreen';
+import LotListScreen from '../../screens/main/cheptel/LotListScreen';
 
 export type CheptelStackParamList = {
   CheptelList: undefined;
@@ -32,6 +36,10 @@ export type CheptelStackParamList = {
   AnimalReproductionHistorique: { animalId: string };
   AnimalTransactionHistorique: { animalId: string };
   AnimalHistory: undefined;
+  LotCreate: undefined;
+  LotAssign: undefined;
+  LotVente: undefined;
+  LotList: undefined;
 };
 
 const Stack = createStackNavigator<CheptelStackParamList>();
@@ -58,6 +66,10 @@ const CheptelStack = () => {
       <Stack.Screen name="AnimalReproductionHistorique" component={AnimalReproductionHistoriqueScreen} />
       <Stack.Screen name="AnimalTransactionHistorique" component={AnimalTransactionHistoriqueScreen} />
       <Stack.Screen name="AnimalHistory" component={AnimalHistoryScreen} />
+      <Stack.Screen name="LotCreate" component={LotCreateScreen} />
+      <Stack.Screen name="LotAssign" component={LotAssignScreen} />
+      <Stack.Screen name="LotVente" component={LotVenteScreen} />
+      <Stack.Screen name="LotList" component={LotListScreen} />
     </Stack.Navigator>
   );
 };

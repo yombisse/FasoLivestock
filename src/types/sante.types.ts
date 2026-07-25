@@ -87,28 +87,30 @@ export interface EvenementSanitaire {
 
 /**
  * Metadonnees Sanitaires (Health-specific metadata stored in JSON)
+ * Conforme à la documentation API pour la création de rappels via métadonnées
  */
 export interface MetadonneesSanitaire {
-  // Vaccination metadata
+  // Vaccination metadata (rappel créé automatiquement par backend via espece_parametre)
   nom_vaccin?: string;
   dosage?: string;
   lot_vaccin?: string;
-  date_prochaine?: string;
 
-  // Traitement metadata
+  // Traitement metadata (rappel conditionnel via date_rappel_suggeree)
   nom_medicament?: string;
   duree?: string;
   frequence?: string;
+  date_rappel_suggeree?: string; // Optionnel : si fourni, crée un rappel TRAITEMENT
 
-  // Maladie metadata
+  // Maladie metadata (pas de rappel)
   nom_maladie?: string;
   symptomes?: string;
   gravite?: string;
   diagnostic?: string;
 
-  // Contrôle metadata
+  // Contrôle metadata (rappel conditionnel via date_prochain_controle)
   type_controle?: string;
   resultat?: string;
+  date_prochain_controle?: string; // Optionnel : si fourni, crée un rappel CONTRÔLE
 
   // Common metadata
   veterinaire?: string;

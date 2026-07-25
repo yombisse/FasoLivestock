@@ -4,7 +4,6 @@ import { field, date, readonly } from '@nozbe/watermelondb/decorators';
 export class Farm extends Model {
   static table = 'farms';
 
-  @field('api_id') api_id?: string;
   @field('name') name!: string;
   @field('location') location!: string;
   @field('description') description!: string;

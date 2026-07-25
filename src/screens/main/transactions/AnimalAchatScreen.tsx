@@ -25,6 +25,7 @@ import { TypeEvenementIds } from '../../../constants/typeEvenements';
 import { createAnimal } from '../../../database/repositories/animalRepository';
 import { createEvenement } from '../../../database/repositories/evenementRepository';
 import { createTransaction } from '../../../database/repositories/transactionRepository';
+import { getLocalLots } from '../../../database/repositories/lotRepository';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 type AnimalAchatRouteProp = RouteProp<any, 'AnimalAchat'>;
@@ -51,6 +52,15 @@ const AnimalAchatScreen = () => {
     value: e.id,
   }));
 
+  // Lots state
+  const [lots, setLots] = useState<any[]>([]);
+  const [selectedLotId, setSelectedLotId] = useState<string>('');
+
+  const lotOptions = lots.map((lot: any) => ({
+    label: lot.nom_lot,
+    value: lot.id,
+  }));
+
   const [montant, setMontant] = useState('');
   const [dateTransaction, setDateTransaction] = useState<Date | undefined>(new Date());
   const [description, setDescription] = useState('');
@@ -75,6 +85,10 @@ const AnimalAchatScreen = () => {
       if (farm) {
         setFarmId(farm.id);
         console.log('[AnimalAchatScreen] Farm ID set:', farm.id);
+        
+        // Load lots for this farm
+        const farmLots = await getLocalLots(farm.id);
+        setLots(farmLots);
       } else {
         console.warn('[AnimalAchatScreen] No active farm found in storage');
         setError('Aucune ferme active sélectionnée');
@@ -130,6 +144,8 @@ const AnimalAchatScreen = () => {
         sexe: animalSexe,
         poids: animalPoids ? parseFloat(animalPoids) : 0,
         statut: 'SAIN',
+        lot_id: selectedLotId || undefined,
+        origine: 'achat', // Achat = animal acheté
         last_modified_by: userId,
       });
       console.log('[AnimalAchatScreen] Created animal with ID:', newAnimal.id);
@@ -270,6 +286,14 @@ const AnimalAchatScreen = () => {
             onChangeText={setAnimalPoids}
             placeholder="Ex: 250"
             keyboardType="numeric"
+          />
+
+          <AppText style={styles.label}>Lot (optionnel)</AppText>
+          <AppSelect
+            value={selectedLotId}
+            onValueChange={setSelectedLotId}
+            options={lotOptions}
+            placeholder="Sélectionner un lot"
           />
         </View>
 

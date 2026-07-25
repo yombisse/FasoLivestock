@@ -5,6 +5,7 @@ import database from '../watermelonIndex';
  * @param tableName - The name of the table/collection
  * @param data - The data to insert
  * @returns The created record
+ * Note: IDs are generated automatically by setGenerator (20 caractères alphanumériques)
  */
 export async function createLocalRecord<T>(tableName: string, data: any): Promise<T> {
   return await database.write(async () => {
@@ -27,6 +28,7 @@ export async function createLocalRecord<T>(tableName: string, data: any): Promis
     });
     console.log(`[BaseRepository] Created record in ${tableName}:`, {
       id: record.id,
+      id_length: record.id.length,
       _status: (record as any)._status,
       _changed: (record as any)._changed,
       sync_status: (record as any).sync_status,

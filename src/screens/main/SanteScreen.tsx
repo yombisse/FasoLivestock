@@ -7,7 +7,8 @@ import AppText from '../../components/AppText';
 import AppHeader from '../../components/AppHeader';
 import { farmStorage } from '../../storage/farmStorage';
 import { Farm } from '../../types/farm.types';
-import { getEvenementsSanitaires, deleteEvenementSanitaire } from '../../database/repositories/santeEvenementsRepository';
+import { deleteEvenementSanitaire } from '../../database/repositories/santeEvenementsRepository';
+import { useEvenementsSanitaires } from '../../hooks/useEvenementsSanitaires';
 import { EvenementSanitaire } from '../../types/sante.types';
 import { getHealthEventColor } from '../../config/colors';
 import { Theme } from '../../config/colors';
@@ -25,6 +26,9 @@ const SanteScreen = () => {
   
   // Load type evenements for name mapping
   const { typeEvenements } = useTypeEvenements(activeFarm?.id);
+  
+  // Use reactive hook for events
+  const { events: dbEvents, loading: eventsLoading } = useEvenementsSanitaires(activeFarm?.id || '');
 
   const loadActiveFarm = async () => {
     try {
@@ -35,19 +39,19 @@ const SanteScreen = () => {
     }
   };
 
-  const loadEvents = async () => {
-    try {
-      const farm = await farmStorage.getActiveFarm();
-      if (!farm) return;
+  // Load animal names and type names for each event (reactive)
+  useEffect(() => {
+    const loadEventDetails = async () => {
+      if (!dbEvents || dbEvents.length === 0) {
+        setEvents([]);
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
-      const eventsData = await getEvenementsSanitaires(farm.id);
-      
-      console.log('[SanteScreen] Loaded events:', eventsData.length);
-      console.log('[SanteScreen] Sample event animal_id:', eventsData[0]?.animal_id);
       
       // Filter out events with invalid animal_id before processing
-      const validEvents = eventsData.filter(event => {
+      const validEvents = dbEvents.filter(event => {
         const isValid = event.animal_id && event.animal_id !== 'undefined' && event.animal_id !== '';
         if (!isValid) {
           console.log('[SanteScreen] Filtering out event with invalid animal_id:', event.id, event.animal_id);
@@ -65,26 +69,42 @@ const SanteScreen = () => {
           let animalNom = 'Animal inconnu';
           try {
             const animal = await database.get('animals').find(event.animal_id);
-            animalNom = (animal as any).nom || 'Animal inconnu';
+            animalNom = (animal as any).nom || (animal as any).numero_identification || 'Animal inconnu';
           } catch {
             animalNom = 'Animal inconnu';
+          }
+          
+          // Get type name from metadata for vaccination/maladie
+          let typeNom = getTypeEvenementName(event.type_evenement_id);
+          let metadata = {};
+          try {
+            metadata = event.metadonnees ? JSON.parse(event.metadonnees) : {};
+          } catch {
+            metadata = {};
+          }
+          
+          // Format subtitle as "Type-Nom" (e.g., "Vaccination-Rage", "Maladie-Fièvre")
+          if (metadata.nom_vaccin) {
+            typeNom = `Vaccination-${metadata.nom_vaccin}`;
+          }
+          else if (metadata.nom_maladie) {
+            typeNom = `Maladie-${metadata.nom_maladie}`;
           }
           
           return {
             ...event,
             animal_nom: animalNom,
-            type_nom: getTypeEvenementName(event.type_evenement_id),
+            type_nom: typeNom,
           };
         })
       );
       
       setEvents(eventsWithDetails);
-    } catch (error) {
-      console.error('Error loading health events:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    };
+
+    loadEventDetails();
+  }, [dbEvents, typeEvenements]);
 
   const getTypeEvenementName = (typeEvenementId: string) => {
     const typeEvenement = typeEvenements.find((t: any) => t.id === typeEvenementId);
@@ -95,12 +115,6 @@ const SanteScreen = () => {
     loadActiveFarm();
   }, []);
 
-  // Reload events when typeEvenements are loaded
-  useEffect(() => {
-    if (activeFarm && typeEvenements.length > 0) {
-      loadEvents();
-    }
-  }, [activeFarm, typeEvenements]);
 
   // Filter events by type
   const evenements = events.filter(e => !e.date_fin);
@@ -246,7 +260,7 @@ const SanteScreen = () => {
             <ActivityIndicator size="large" color={Theme.primary} />
           ) : displayedEvents.length === 0 ? (
             <View style={styles.emptyState}>
-              <MaterialCommunityIcons name="medical-bag-outline" size={48} color="#BDBDBD" />
+              <MaterialCommunityIcons name="medical-bag" size={48} color="#BDBDBD" />
               <AppText style={styles.emptyText} color="#757575">
                 Aucun événement sanitaire enregistré
               </AppText>
@@ -268,10 +282,10 @@ const SanteScreen = () => {
                 </View>
                 <View style={styles.eventContent}>
                   <AppText style={styles.eventTitle} fontWeight="bold">
-                    {event.type_nom || event.type || 'Événement'}
+                    {event.animal_nom || 'Animal inconnu'}
                   </AppText>
                   <AppText style={styles.eventAnimal} color="#757575" fontSize={12}>
-                    {event.animal_nom || 'Animal inconnu'}
+                    {event.type_nom || event.type || 'Événement'}
                   </AppText>
                   {event.description && (
                     <AppText style={styles.eventDescription} color="#9E9E9E" fontSize={11}>

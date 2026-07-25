@@ -24,18 +24,18 @@ export const farmStorage = {
         return null;
       }
 
-      console.log('[farmStorage] Looking for farm API ID in WatermelonDB:', farmId);
-      const farms = await database.get('farms').query(Q.where('api_id', farmId)).fetch();
+      console.log('[farmStorage] Looking for farm ID in WatermelonDB:', farmId);
+      const farms = await database.get('farms').query(Q.where('id', farmId)).fetch();
       console.log('[farmStorage] WatermelonDB query returned:', farms.length, 'farms');
       
       if (farms.length === 0) {
-        console.warn('[farmStorage] Farm API ID found in storage but not in WatermelonDB:', farmId);
+        console.warn('[farmStorage] Farm ID found in storage but not in WatermelonDB:', farmId);
         
         // Debug: list all farms in database
         const allFarms = await database.get('farms').query().fetch();
         console.log('[farmStorage] All farms in database:', allFarms.length);
         allFarms.forEach((f: any) => {
-          console.log('[farmStorage] Farm in DB - WatermelonDB ID:', f.id, 'API ID:', f.api_id, 'Name:', f.name);
+          console.log('[farmStorage] Farm in DB - ID:', f.id, 'Name:', f.name);
         });
         
         await AsyncStorage.removeItem(ACTIVE_FARM_KEY);
@@ -43,8 +43,9 @@ export const farmStorage = {
       }
 
       const farm = farms[0] as any;
+      
       return {
-        id: farm.api_id, // Return API ID for compatibility
+        id: farm.id,
         name: farm.name,
         location: farm.location,
         description: farm.description,

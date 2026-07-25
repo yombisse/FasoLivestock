@@ -25,11 +25,13 @@ import { NaissanceRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { createNaissance } from '../../../database/repositories/naissanceRepository';
-import { useEligibleFemales } from '../../../hooks/useEligibleFemales';
+import { filterFemellesEligiblesNaissance } from '../../../database/repositories/animalRepository';
+import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
+import { getLocalLots } from '../../../database/repositories/lotRepository';
 import { Theme } from '../../../config/colors';
 import { useEspeces } from '../../../hooks/useEspeces';
-import database from '../../../database/watermelonIndex';
-import { Q } from '@nozbe/watermelondb';
+import { useAnimals } from '../../../hooks/useAnimals';
+import AppSelect, { AppSelectOption } from '../../../components/AppSelect';
 
 type AnimalNaissanceRouteProp = RouteProp<CheptelStackParamList, 'AnimalNaissance'>;
 type AnimalNaissanceNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalNaissance'>;
@@ -72,9 +74,28 @@ const AnimalNaissanceScreen = () => {
 
   // Load especes from WatermelonDB
   const { especes, loading: loadingEspeces } = useEspeces();
+  
+  // Load all animals for filtering
+  const { animals, loading: loadingAnimals } = useAnimals(farmId || '');
+  
+  // Load reproduction events for eligibility filtering
+  const [reproductionEvents, setReproductionEvents] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
 
-  // Load eligible females (with gestation EN_COURS) for mother selection
-  const { eligibleFemales, loading: loadingFemales } = useEligibleFemales(farmId || '');
+  // Lots state
+  const [lots, setLots] = useState<any[]>([]);
+  const [selectedLotId, setSelectedLotId] = useState<string>('');
+
+  const lotOptions = lots.map((lot: any) => ({
+    label: lot.nom_lot,
+    value: lot.id,
+  }));
+
+  // Filter eligible females using the utility function
+  const eligibleFemales = reproductionEvents.length > 0 
+    ? filterFemellesEligiblesNaissance(animals, reproductionEvents)
+    : [];
+  const loadingFemales = loadingAnimals || loadingEvents;
 
   const formatDate = (value?: Date) => value ? value.toISOString().split('T')[0] : undefined;
 
@@ -83,9 +104,20 @@ const AnimalNaissanceScreen = () => {
       const farm = await farmStorage.getActiveFarm();
       if (farm) {
         setFarmId(farm.id);
+        
+        // Load reproduction events for eligibility filtering
+        setLoadingEvents(true);
+        const events = await getReproductionEvents(farm.id);
+        setReproductionEvents(events);
+        setLoadingEvents(false);
+
+        // Load lots for this farm
+        const farmLots = await getLocalLots(farm.id);
+        setLots(farmLots);
       }
     } catch (error) {
       console.error('Error loading active farm:', error);
+      setLoadingEvents(false);
     }
   };
 
@@ -186,6 +218,7 @@ const AnimalNaissanceScreen = () => {
       console.log('[AnimalNaissanceScreen] Created naissance locally:', createdNaissance.id);
 
       // Create animal records for each newborn if checkbox is checked
+      // Note: IDs are generated automatically by setGenerator (20 caractères alphanumériques)
       if (formData.creerPetits) {
         await database.write(async () => {
           for (const newborn of newborns) {
@@ -199,7 +232,7 @@ const AnimalNaissanceScreen = () => {
               animal.farm_id = farmId;
               animal.espece_id = (selectedMother as any).espece_id;
               animal.categorie_id = (selectedMother as any).categorie_id;
-              animal.lot_id = (selectedMother as any).lot_id;
+              animal.lot_id = selectedLotId || (selectedMother as any).lot_id;
               animal.mother_id = selectedMother.id;
               animal.nom = newborn.nom || `Petit ${newborn.numero_identification}`;
               animal.naissance_id = createdNaissance.id;
@@ -277,6 +310,16 @@ const AnimalNaissanceScreen = () => {
               placeholder="Ex. 2"
             />
             {fieldErrors.nombrePetits ? <AppText style={styles.errorText}>{fieldErrors.nombrePetits}</AppText> : null}
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <AppText style={styles.label}>Lot (optionnel)</AppText>
+            <AppSelect
+              value={selectedLotId}
+              onValueChange={setSelectedLotId}
+              options={lotOptions}
+              placeholder="Sélectionner un lot"
+            />
           </View>
 
           <View style={styles.fieldContainer}>

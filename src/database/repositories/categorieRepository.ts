@@ -25,7 +25,7 @@ export async function getLocalCategories(): Promise<Categorie[]> {
 export async function getLocalCategorieById(id: string): Promise<Categorie | null> {
   try {
     const categories = await database.get('categories')
-      .query(Q.where('api_id', id))
+      .query(Q.where('id', id))
       .fetch();
     
     if (categories.length > 0) {

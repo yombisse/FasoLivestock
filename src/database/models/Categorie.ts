@@ -4,7 +4,6 @@ import { field, date, readonly } from '@nozbe/watermelondb/decorators';
 export class Categorie extends Model {
   static table = 'categories';
 
-  @field('api_id') api_id?: string;
   @field('nom_categorie') nom_categorie!: string;
   @field('type') type!: string;
   @field('description') description!: string;

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { CommonActions } from '@react-navigation/native';
@@ -66,17 +67,33 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   };
 
   const handleLogout = async () => {
-    try {
-      await authStorage.clearAuth();
-      props.navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'AuthStack' }],
-        })
-      );
-    } catch (error) {
-      console.error('Error during logout:', error);
-    }
+    Alert.alert(
+      'Confirmer la déconnexion',
+      'Êtes-vous sûr de vouloir vous déconnecter?',
+      [
+        {
+          text: 'Annuler',
+          style: 'cancel',
+        },
+        {
+          text: 'Se déconnecter',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await authStorage.clearAuth();
+              props.navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'AuthStack' }],
+                })
+              );
+            } catch (error) {
+              console.error('Error during logout:', error);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleChangeFarm = () => {
@@ -102,6 +119,8 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
         props.navigation.navigate('MainTabs', { screen: 'Sante' });
       } else if (screenName === 'Finance') {
         props.navigation.navigate('MainTabs', { screen: 'Finance' });
+      } else if (screenName === 'Lots') {
+        props.navigation.navigate('MainTabs', { screen: 'Cheptel', params: { screen: 'LotList' } });
       } else if (screenName === 'SyncConflicts') {
         props.navigation.navigate('SyncConflicts');
       } else {
@@ -195,6 +214,7 @@ const CustomDrawerContent = (props: DrawerContentComponentProps) => {
         <View style={styles.navSection}>
           {renderNavItem('Accueil', 'home', 'Home', props.state.index === 0, 'home')}
           {renderNavItem('Cheptel', 'cow', 'Cheptel', props.state.index === 1, 'cheptel')}
+          {renderNavItem('Lots', 'layers', 'Lots', false, 'lots')}
           {renderNavItem('Reproduction', 'gender-male-female', 'Reproduction', props.state.index === 2, 'reproduction')}
           {renderNavItem('Santé', 'medical-bag', 'Sante', props.state.index === 3, 'sante')}
           {renderNavItem('Finance', 'cash', 'Finance', props.state.index === 4, 'finance')}

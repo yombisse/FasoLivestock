@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Modalize } from 'react-native-modalize';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
@@ -31,15 +30,15 @@ type TransactionListNavigationProp = StackNavigationProp<any, 'TransactionList'>
 const TransactionListScreen = () => {
   const navigation = useNavigation<TransactionListNavigationProp>();
   const [transactions, setTransactions] = useState<RepositoryTransaction[]>([]);
+  const [transactionsWithAnimals, setTransactionsWithAnimals] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'ventes' | 'achats' | 'transferts'>('ventes');
+  const [activeTab, setActiveTab] = useState<'tout' | 'ventes' | 'achats' | 'transferts'>('tout');
   const [bilan, setBilan] = useState<{ total_revenus: number; total_charges: number; total_transferts: number; bilan: number } | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
-  const actionSheetRef = useRef<Modalize>(null);
 
   const loadActiveFarm = async () => {
     try {
@@ -94,7 +93,9 @@ const TransactionListScreen = () => {
       }
 
       // Filter by active tab
-      if (activeTab === 'ventes') {
+      if (activeTab === 'tout') {
+        // Show all transactions
+      } else if (activeTab === 'ventes') {
         filteredTransactions = filteredTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'ENTREE');
       } else if (activeTab === 'achats') {
         filteredTransactions = filteredTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'SORTIE');
@@ -135,7 +136,29 @@ const TransactionListScreen = () => {
     if (farmId) {
       // Use observable for reactive updates
       const subscription = observeLocalTransactions(farmId).subscribe((localTransactions: any[]) => {
-        let filteredTransactions = localTransactions;
+        // Convert WatermelonDB objects to plain objects with proper properties
+        const convertedTransactions = localTransactions.map((t: any) => ({
+          id: t.id,
+          type_transaction: t.type_transaction,
+          montant: t.montant,
+          date_transaction: t.date_transaction,
+          description: t.description,
+          farm_id: t.farm_id,
+          animal_id: t.animal_id,
+          evenement_id: t.evenement_id,
+          categorie_id: t.categorie_id,
+          user_id: t.user_id,
+          tiers: t.tiers,
+          numero_transaction: t.numero_transaction,
+          sync_status: t.sync_status,
+          last_modified_by: t.last_modified_by,
+          version: t.version,
+          created_at: t.createdAt?.toISOString() || t.created_at,
+          updated_at: t.updatedAt?.toISOString() || t.updated_at,
+          deleted_at: t.deletedAt?.toISOString() || t.deleted_at,
+        }));
+
+        let filteredTransactions = convertedTransactions;
         if (searchQuery) {
           const query = searchQuery.toLowerCase();
           filteredTransactions = filteredTransactions.filter(
@@ -146,7 +169,9 @@ const TransactionListScreen = () => {
         }
 
         // Filter by active tab
-        if (activeTab === 'ventes') {
+        if (activeTab === 'tout') {
+          // Show all transactions
+        } else if (activeTab === 'ventes') {
           filteredTransactions = filteredTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'ENTREE');
         } else if (activeTab === 'achats') {
           filteredTransactions = filteredTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'SORTIE');
@@ -159,9 +184,9 @@ const TransactionListScreen = () => {
 
         // Calculate bilan locally
         const bilan = {
-          total_revenus: localTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'ENTREE').reduce((sum, t) => sum + (t.montant || 0), 0),
-          total_charges: localTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'SORTIE').reduce((sum, t) => sum + (t.montant || 0), 0),
-          total_transferts: localTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'TRANSFERT').reduce((sum, t) => sum + (t.montant || 0), 0),
+          total_revenus: convertedTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'ENTREE').reduce((sum, t) => sum + (t.montant || 0), 0),
+          total_charges: convertedTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'SORTIE').reduce((sum, t) => sum + (t.montant || 0), 0),
+          total_transferts: convertedTransactions.filter((t: RepositoryTransaction) => t.type_transaction === 'TRANSFERT').reduce((sum, t) => sum + (t.montant || 0), 0),
           bilan: 0,
         };
         bilan.bilan = bilan.total_revenus - bilan.total_charges;
@@ -171,6 +196,33 @@ const TransactionListScreen = () => {
       return () => subscription.unsubscribe();
     }
   }, [farmId, activeTab, searchQuery]);
+
+  // Load animal names for transactions
+  useEffect(() => {
+    if (transactions.length > 0) {
+      const loadAnimalNames = async () => {
+        const database = (await import('../../../database/watermelonIndex')).default;
+        const transactionsWithNames = await Promise.all(
+          transactions.map(async (transaction) => {
+            let animalNom = 'Animal inconnu';
+            if (transaction.animal_id) {
+              try {
+                const animal = await database.get('animals').find(transaction.animal_id);
+                animalNom = (animal as any).nom || (animal as any).numero_identification || 'Animal inconnu';
+              } catch {
+                animalNom = 'Animal inconnu';
+              }
+            }
+            return { ...transaction, animal_nom: animalNom };
+          })
+        );
+        setTransactionsWithAnimals(transactionsWithNames);
+      };
+      loadAnimalNames();
+    } else {
+      setTransactionsWithAnimals([]);
+    }
+  }, [transactions]);
 
   useFocusEffect(
     useCallback(() => {
@@ -188,13 +240,13 @@ const TransactionListScreen = () => {
   };
 
   const handleVente = () => {
-    // Navigate to AnimalVenteScreen without animalId (mode libre with animal picker)
+    // Navigate directly to AnimalVenteScreen without animalId (mode libre with animal picker)
     navigation.navigate('AnimalVente', { animalId: undefined });
   };
 
-  const renderTransaction = ({ item }: { item: RepositoryTransaction }) => (
+  const renderTransaction = ({ item }: { item: any }) => (
     <TransactionListItem 
-      transaction={item as any} 
+      transaction={item} 
       onPress={(transaction) => navigation.navigate('TransactionDetail', { transactionId: transaction.id })}
     />
   );
@@ -209,6 +261,17 @@ const TransactionListScreen = () => {
 
   const renderBilanCard = () => {
     if (!bilan) return null;
+
+    if (activeTab === 'tout') {
+      return (
+        <View style={styles.bilanCard}>
+          <AppText style={styles.bilanTitle} fontWeight="bold">Total transactions</AppText>
+          <AppText style={styles.bilanValue} color={Theme.primary} fontSize={24} fontWeight="bold">
+            {transactionsWithAnimals?.length || 0}
+          </AppText>
+        </View>
+      );
+    }
 
     if (activeTab === 'ventes') {
       return (
@@ -278,10 +341,19 @@ const TransactionListScreen = () => {
           </View>
         </View>
       </View>
+
       <View style={styles.content}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
 
         <View style={styles.tabsContainer}>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'tout' && styles.tabActive]}
+            onPress={() => setActiveTab('tout')}
+          >
+            <AppText style={[styles.tabText, activeTab === 'tout' && styles.tabTextActive]}>
+              Tout ({transactions?.length || 0})
+            </AppText>
+          </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'ventes' && styles.tabActive]}
             onPress={() => setActiveTab('ventes')}
@@ -327,7 +399,7 @@ const TransactionListScreen = () => {
           </View>
         ) : (
           <FlatList
-            data={transactions}
+            data={transactionsWithAnimals}
             renderItem={renderTransaction}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
@@ -464,8 +536,8 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
-    paddingVertical: 12,
+    fontSize: 16,
+    color: Theme.textPrimary,
   },
   listContent: {
     padding: 16,

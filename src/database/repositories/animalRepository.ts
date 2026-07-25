@@ -20,7 +20,6 @@ export async function createAnimal(data: Omit<Animal, 'id' | 'sync_status' | 've
     console.log('[AnimalRepository] Animal created successfully with sync_status pending, ID:', result.id);
     console.log('[AUDIT] Animal creation details:', {
       local_id: result.id,
-      api_id: (result as any).api_id || 'NOT_SET',
       farm_id: (result as any).farm_id,
       sync_status: (result as any).sync_status,
       _status: (result as any)._status,
@@ -103,6 +102,21 @@ export async function getLocalAnimalByNumeroIdentification(farmId: string, numer
   } catch (error) {
     console.error('[AnimalRepository] Error getting animal by numero_identification:', error);
     return null;
+  }
+}
+
+/**
+ * Get animals by lot_id
+ */
+export async function getAnimalsByLot(lotId: string): Promise<Animal[]> {
+  try {
+    const animals = await database.get('animals')
+      .query(Q.where('lot_id', lotId))
+      .fetch();
+    return animals as unknown as Animal[];
+  } catch (error) {
+    console.error('[AnimalRepository] Error getting animals by lot:', error);
+    return [];
   }
 }
 
@@ -206,4 +220,207 @@ export async function getLocalActiveMales(farmId: string): Promise<Animal[]> {
   );
 
   return animalsWithSpecies as unknown as Animal[];
+}
+
+// ============================================================================
+// FONCTIONS UTILITAIRES DE FILTRE D'ÉLIGIBILITÉ (Règles backend offline-first)
+// ============================================================================
+
+/**
+ * Filtre les animaux éligibles aux événements sanitaires
+ * Règles backend (calcul local pour mobile offline-first) :
+ * - VACCINATION : Animaux vivants (statut = 'SAIN' ou 'MALADE')
+ * - TRAITEMENT : Animaux malades (statut = 'MALADE')
+ * - CONTRÔLE/MALADIE/SURVEILLANCE : Animaux vivants (statut = 'SAIN' ou 'MALADE')
+ * 
+ * @param animals - Liste des animaux à filtrer
+ * @param typeEvenement - Type d'événement sanitaire ('VACCINATION', 'TRAITMENT', 'CONTRÔLE', 'MALADIE', 'SURVEILLANCE')
+ * @returns Animaux éligibles
+ */
+export function filterAnimalsForSanitaire(animals: any[], typeEvenement?: string): any[] {
+  return animals.filter((a: any) => {
+    const statut = a.statut || '';
+    
+    // Exclure les animaux morts, vendus ou perdus
+    if (['MORT', 'VENDU', 'PERDU'].includes(statut)) {
+      return false;
+    }
+
+    // Règle spécifique pour TRAITEMENT : uniquement les animaux malades
+    if (typeEvenement === 'TRAITMENT' || typeEvenement === 'TRAITEMENT') {
+      return statut === 'MALADE';
+    }
+
+    // Pour VACCINATION, CONTRÔLE, MALADIE et SURVEILLANCE : animaux vivants (SAIN ou MALADE)
+    return ['SAIN', 'MALADE'].includes(statut);
+  });
+}
+
+/**
+ * Filtre les animaux éligibles aux événements de mouvement
+ * Règles backend (calcul local pour mobile offline-first) :
+ * - VENTE/TRANSFERT/DECES/PERTE/ABATTAGE : Animaux vivants (statut = 'SAIN' ou 'MALADE')
+ * 
+ * @param animals - Liste des animaux à filtrer
+ * @param typeMouvement - Type de mouvement (non utilisé dans le filtre actuel mais inclus pour cohérence)
+ * @returns Animaux éligibles
+ */
+export function filterAnimalsForMouvement(animals: any[], typeMouvement?: string): any[] {
+  return animals.filter((a: any) => {
+    const statut = a.statut || '';
+    
+    // Exclure les animaux morts, vendus ou perdus
+    if (['MORT', 'VENDU', 'PERDU'].includes(statut)) {
+      return false;
+    }
+
+    // Pour tous les types de mouvement : animaux vivants (SAIN ou MALADE)
+    return ['SAIN', 'MALADE'].includes(statut);
+  });
+}
+
+/**
+ * Filtre les animaux éligibles aux événements de reproduction
+ * Règles backend (calcul local pour mobile offline-first) :
+ * - SAILLIE : Femelles vivantes, âge de reproduction atteint, pas de gestation EN_COURS
+ * - GESTATION : Femelles vivantes, saillie EN_COURS existante, pas de gestation EN_COURS déjà
+ * - MISE_BAS : Femelles vivantes, gestation EN_COURS existante
+ * 
+ * @param animals - Liste des animaux à filtrer
+ * @param typeReproduction - Type de reproduction ('SAILLIE', 'GESTATION', 'MISE_BAS')
+ * @param evenements - Liste des événements de reproduction pour vérifier les gestations/saillies en cours
+ * @param especeParametres - Paramètres d'espèce pour vérifier l'âge de reproduction (optionnel)
+ * @returns Animaux éligibles
+ */
+export function filterAnimalsForReproduction(
+  animals: any[],
+  typeReproduction: string,
+  evenements: any[] = [],
+  especeParametres: any = {}
+): any[] {
+  return animals.filter((a: any) => {
+    const statut = a.statut || '';
+    const sexe = a.sexe || '';
+    
+    // Exclure les animaux morts, vendus ou perdus
+    if (['MORT', 'VENDU', 'PERDU'].includes(statut)) {
+      return false;
+    }
+
+    // Uniquement les femelles
+    if (sexe !== 'femelle') {
+      return false;
+    }
+
+    // Uniquement les animaux vivants (SAIN ou MALADE)
+    if (!['SAIN', 'MALADE'].includes(statut)) {
+      return false;
+    }
+
+    // Règles spécifiques selon le type de reproduction
+    switch (typeReproduction) {
+      case 'SAILLIE':
+        // Femelles vivantes, âge de reproduction atteint, pas de gestation EN_COURS
+        const ageReproductionMois = especeParametres.age_reproduction_mois || 12; // Valeur par défaut
+        const ageMois = a.age_mois || 0;
+        
+        if (ageMois < ageReproductionMois) {
+          return false;
+        }
+        
+        // Vérifier qu'il n'y a pas de gestation EN_COURS
+        const hasGestationEnCours = evenements.some((e: any) =>
+          e.animal_id === a.id &&
+          e.categorie === 'REPRODUCTION' &&
+          e.type_nom === 'GESTATION CONFIRMÉE' &&
+          e.statut === 'EN_COURS'
+        );
+        
+        return !hasGestationEnCours;
+
+      case 'GESTATION':
+        // Femelles vivantes, saillie EN_COURS existante, pas de gestation EN_COURS déjà
+        const hasSaillieEnCours = evenements.some((e: any) =>
+          e.animal_id === a.id &&
+          e.categorie === 'REPRODUCTION' &&
+          e.type_nom === 'SAILLIE' &&
+          e.statut === 'EN_COURS'
+        );
+        
+        const hasGestationEnCoursForGestation = evenements.some((e: any) =>
+          e.animal_id === a.id &&
+          e.categorie === 'REPRODUCTION' &&
+          e.type_nom === 'GESTATION CONFIRMÉE' &&
+          e.statut === 'EN_COURS'
+        );
+        
+        return hasSaillieEnCours && !hasGestationEnCoursForGestation;
+
+      case 'MISE_BAS':
+        // Femelles vivantes, gestation EN_COURS existante
+        const hasGestationEnCoursForMiseBas = evenements.some((e: any) =>
+          e.animal_id === a.id &&
+          e.categorie === 'REPRODUCTION' &&
+          e.type_nom === 'GESTATION CONFIRMÉE' &&
+          e.statut === 'EN_COURS'
+        );
+        
+        return hasGestationEnCoursForMiseBas;
+
+      default:
+        return false;
+    }
+  });
+}
+
+/**
+ * Filtre les femelles éligibles à une déclaration de naissance
+ * Règles backend (calcul local pour mobile offline-first) :
+ * - Femelles vivantes
+ * - Gestation EN_COURS existante
+ * - Date de mise bas prévue dépassée ou atteinte
+ * 
+ * @param animals - Liste des animaux à filtrer
+ * @param evenements - Liste des événements de reproduction pour vérifier les gestations en cours
+ * @returns Femelles éligibles
+ */
+export function filterFemellesEligiblesNaissance(animals: any[], evenements: any[] = []): any[] {
+  const now = new Date();
+  
+  return animals.filter((a: any) => {
+    const statut = a.statut || '';
+    const sexe = a.sexe || '';
+    
+    // Exclure les animaux morts, vendus ou perdus
+    if (['MORT', 'VENDU', 'PERDU'].includes(statut)) {
+      return false;
+    }
+
+    // Uniquement les femelles
+    if (sexe !== 'femelle') {
+      return false;
+    }
+
+    // Uniquement les animaux vivants (SAIN ou MALADE)
+    if (!['SAIN', 'MALADE'].includes(statut)) {
+      return false;
+    }
+
+    // Vérifier qu'il y a une gestation EN_COURS avec date de mise bas prévue dépassée
+    const gestationEnCours = evenements.find((e: any) =>
+      e.animal_id === a.id &&
+      e.categorie === 'REPRODUCTION' &&
+      e.type_nom === 'GESTATION CONFIRMÉE' &&
+      e.statut === 'EN_COURS' &&
+      e.date_mise_bas_prevue
+    );
+
+    if (!gestationEnCours) {
+      return false;
+    }
+
+    // Vérifier que la date de mise bas prévue est dépassée ou atteinte
+    const dateMiseBasPrevue = new Date(gestationEnCours.date_mise_bas_prevue);
+    return dateMiseBasPrevue <= now;
+  });
 }

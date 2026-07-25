@@ -7,6 +7,8 @@ export class Lot extends Model {
   @field('farm_id') farm_id!: string;
   @field('nom_lot') nom_lot!: string;
   @field('nombre') nombre!: number;
+  @field('description') description?: string;
+  @field('espece_id') espece_id?: string;
   @field('sync_status') sync_status!: 'synced' | 'pending' | 'conflict';
   @field('version') version!: number;
   @field('last_modified_by') last_modified_by?: string;

@@ -205,18 +205,22 @@ const AnimalFormScreen = () => {
       setFieldErrors({});
       console.log('[AnimalForm] Starting submission...');
 
+      // Validation: espece_id is now required
+      if (!formData.espece_id) {
+        setFieldErrors({ espece_id: 'L\'espèce est requise' });
+        return;
+      }
+
       const payload: CreateAnimalRequest | UpdateAnimalRequest = {
         farm_id: farmId,
         nom: formData.nom.trim(),
         sexe: formData.sexe!,
+        espece_id: formData.espece_id,
       };
       console.log('[AnimalForm] Initial payload:', payload);
 
       if (formData.numero_identification.trim()) {
         payload.numero_identification = formData.numero_identification.trim();
-      }
-      if (formData.espece_id) {
-        payload.espece_id = formData.espece_id;
       }
       if (formData.race.trim()) {
         payload.race = formData.race.trim();
@@ -234,6 +238,7 @@ const AnimalFormScreen = () => {
       // Set default status to SAIN for new animals
       if (!isEditMode) {
         (payload as CreateAnimalRequest).statut = 'SAIN';
+        (payload as CreateAnimalRequest).origine = 'enregistrement'; // Default for manual creation
       }
 
       if (isEditMode) {

@@ -20,6 +20,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import database from '../../../database/watermelonIndex';
+import { Q } from '@nozbe/watermelondb';
 import { useTypeEvenements } from '../../../hooks/useTypeEvenements';
 import { getRappels, calculateJoursRestants, getUrgenceColor } from '../../../database/repositories/rappelRepository';
 
@@ -55,20 +56,76 @@ const AnimalDetailScreen = ({navigation,route}) => {
         _status: (animalRecord as any)._status,
       });
 
-      // Load relations
-      await animalRecord.espece;
-      await animalRecord.farm;
-      await animalRecord.mother;
-      await animalRecord.lot;
+      // Load relations using fetch() for WatermelonDB
+      let espece = null;
+      let farm = null;
+      let mother = null;
+      let lot = null;
+
+      try {
+        if (animalRecord.espece) {
+          espece = await animalRecord.espece.fetch();
+        }
+      } catch (e) {
+        console.warn('[AnimalDetail] Failed to load espece:', e);
+      }
+
+      // Load farm manually using farm_id since there's no relation in the model
+      try {
+        const farmId = animalRecord.farm_id;
+        if (farmId) {
+          const farms = await database.get('farms').query(Q.where('id', farmId)).fetch();
+          if (farms.length > 0) {
+            farm = farms[0];
+          }
+        }
+      } catch (e) {
+        console.warn('[AnimalDetail] Failed to load farm:', e);
+      }
+
+      // Load mother if mother_id exists
+      try {
+        const motherId = animalRecord.mother_id;
+        if (motherId) {
+          const mothers = await database.get('animals').query(Q.where('id', motherId)).fetch();
+          if (mothers.length > 0) {
+            mother = mothers[0];
+          }
+        }
+      } catch (e) {
+        console.warn('[AnimalDetail] Failed to load mother:', e);
+      }
+
+      // Load lot if lot_id exists
+      try {
+        const lotId = animalRecord.lot_id;
+        if (lotId) {
+          const lots = await database.get('lots').query(Q.where('id', lotId)).fetch();
+          if (lots.length > 0) {
+            lot = lots[0];
+          }
+        }
+      } catch (e) {
+        console.warn('[AnimalDetail] Failed to load lot:', e);
+      }
 
       console.log('[AnimalDetail] Relations loaded:', {
-        espece: animalRecord.espece,
-        farm: animalRecord.farm,
-        mother: animalRecord.mother,
-        lot: animalRecord.lot,
+        espece: espece?._raw || espece,
+        farm: farm?._raw || farm,
+        mother: mother?._raw || mother,
+        lot: lot?._raw || lot,
       });
 
-      setAnimal(animalRecord);
+      // Create animal object with loaded relations
+      const animalWithRelations = {
+        ...animalRecord._raw,
+        espece: espece?._raw ? { id: espece._raw.id, nom: espece._raw.nom } : null,
+        farm: farm?._raw ? { id: farm._raw.id, name: farm._raw.name } : null,
+        mother: mother?._raw ? { id: mother._raw.id, nom: mother._raw.nom } : null,
+        lot: lot?._raw ? { id: lot._raw.id, nom_lot: lot._raw.nom_lot } : null,
+      };
+
+      setAnimal(animalWithRelations);
 
       // Load rappels for this animal
       const farmId = (animalRecord as any).farm_id;
@@ -124,39 +181,6 @@ const AnimalDetailScreen = ({navigation,route}) => {
     navigation.navigate('AnimalHistorique', { animalId });
   };
 
-  const handleDelete = () => {
-    actionSheetRef.current?.dismiss();
-    
-    if (!animal) return;
-
-    Alert.alert(
-      'Supprimer l\'animal',
-      `Cette action supprimera "${animal.nom}" et son historique restera consultable mais l'animal ne sera plus actif. Confirmer ?`,
-      [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setDeleting(true);
-              const { deleteAnimal } = await import('../../../database/repositories/animalRepository');
-              await deleteAnimal(animal.id);
-              navigation.goBack();
-            } catch (error: any) {
-              console.error('[AUDIT] AnimalDetail - Delete animal error:', error);
-              Alert.alert('Erreur', error.message || 'Erreur lors de la suppression');
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const actionSheetOptions: BottomSheetOption[] = [
     // Dynamic movement type evenements
     ...movementTypeEvenements.map((type) => ({
@@ -168,7 +192,6 @@ const AnimalDetailScreen = ({navigation,route}) => {
     })),
     // Static options
     { id: 'historique', label: 'Voir l\'historique', icon: 'history', iconColor: '#1976D2', onPress: handleHistorique },
-    { id: 'delete', label: 'Supprimer', icon: 'trash-can', iconColor: '#D32F2F', onPress: handleDelete },
   ];
 
   // Load animal on mount
@@ -303,7 +326,7 @@ const AnimalDetailScreen = ({navigation,route}) => {
             Erreur
           </AppText>
           <AppText style={styles.errorText} color="#757575">
-            {error || 'Animal non trouvé'}
+            {error?.message || error?.toString() || 'Animal non trouvé'}
           </AppText>
           <AppButton
             title="Réessayer"

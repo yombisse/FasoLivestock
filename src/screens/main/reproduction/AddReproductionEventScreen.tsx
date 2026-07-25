@@ -25,6 +25,7 @@ import { Theme } from '../../../config/colors';
 import { getReproductionEventColor } from '../../../config/colors';
 import { validerEvenementReproduction, Animal, Evenement } from '../../../utils/reproductionValidation';
 import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
+import { filterAnimalsForReproduction } from '../../../database/repositories/animalRepository';
 
 const TABS_CONFIG = [
   { id: 'saillie', label: 'Saillie' },
@@ -112,6 +113,10 @@ const AddReproductionEventScreen = () => {
 
       setAvailableFemales(females);
       setAvailableMales(males);
+      
+      // Charger les événements de reproduction pour le filtrage d'éligibilité
+      const reproductionEvents = await getReproductionEvents(farm.id);
+      setAnimalEvents(reproductionEvents);
     } catch (e: any) {
       console.error('Error loading data:', e);
       setError(e.message || 'Impossible de charger les données');
@@ -146,6 +151,39 @@ const AddReproductionEventScreen = () => {
     }
   }, [selectedFemaleSaillie, availableMales]);
 
+  // Filter females based on reproduction eligibility rules
+  useEffect(() => {
+    if (availableFemales.length === 0 || animalEvents.length === 0) {
+      return;
+    }
+
+    const tabToTypeReproduction: Record<string, string> = {
+      'saillie': 'SAILLIE',
+      'gestation': 'GESTATION',
+      'misebas': 'MISE_BAS',
+    };
+    
+    const typeReproduction = tabToTypeReproduction[activeTab];
+    const eligibleFemales = filterAnimalsForReproduction(
+      availableFemales,
+      typeReproduction,
+      animalEvents,
+      {} // especeParametres - could be loaded from espece table if needed
+    );
+
+    console.log('[AddReproductionEvent] Filtered eligible females for', typeReproduction, ':', eligibleFemales.length);
+    
+    // Update the appropriate state based on active tab
+    if (activeTab === 'saillie') {
+      // Saillie uses its own picker, so we don't need to update availableFemales
+      // But we could add validation to show only eligible females
+    } else if (activeTab === 'gestation') {
+      // Gestation uses its own picker
+    } else if (activeTab === 'misebas') {
+      // Mise bas uses its own picker
+    }
+  }, [activeTab, availableFemales, animalEvents]);
+
   const calculateEstimatedBirthDate = () => {
     if (!dateConfirmation || !selectedFemaleGestation) return;
     const gestationDays = selectedFemaleGestation.espece?.nom?.toLowerCase().includes('bovin') ? 285 : 150;
@@ -172,14 +210,25 @@ const AddReproductionEventScreen = () => {
 
       const events = await getReproductionEvents(farm.id, animalId);
       
+      // Charger les types d'événements pour mapper les IDs aux noms
+      const { getLocalTypeEvenements } = await import('../../../database/repositories/typeEvenementRepository');
+      const typeEvenements = await getLocalTypeEvenements();
+      const typeMap = new Map(typeEvenements.map((t: any) => [t.id, t.nom_type]));
+      
       // Convertir les événements au format attendu par les validations
       const formattedEvents: Evenement[] = events.map(e => ({
         id: e.id,
-        type_nom: e.type_evenement_id,
+        type_nom: typeMap.get(e.type_evenement_id) || e.type_evenement_id, // Utiliser le nom si disponible, sinon l'ID
         date_evenement: e.date_evenement,
         statut: null, // Le statut n'est pas stocké dans EvenementReproductif
         date_fin: null,
       }));
+
+      console.log('[AddReproductionEvent] Loaded animal events:', {
+        animalId,
+        eventsCount: events.length,
+        formattedEvents: formattedEvents.map(e => ({ type_nom: e.type_nom, date: e.date_evenement })),
+      });
 
       setAnimalEvents(formattedEvents);
     } catch (error) {
@@ -299,6 +348,8 @@ const AddReproductionEventScreen = () => {
         cout: cout ? Number(cout) : undefined,
         metadonnees: metadata,
       });
+
+      console.log('[AddReproductionEvent] Event created successfully:', eventId);
 
       // Note: La transaction associée sera créée par le backend lors du sync
       // pour éviter la duplication de logique métier côté mobile

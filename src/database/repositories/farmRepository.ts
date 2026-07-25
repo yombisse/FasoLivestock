@@ -26,9 +26,9 @@ export async function getFarmById(id: string, includeDeleted: boolean = false): 
   try {
     let query;
     if (!includeDeleted) {
-      query = database.get('farms').query(Q.where('api_id', id), Q.where('deleted_at', null));
+      query = database.get('farms').query(Q.where('id', id), Q.where('deleted_at', null));
     } else {
-      query = database.get('farms').query(Q.where('api_id', id));
+      query = database.get('farms').query(Q.where('id', id));
     }
     const farms = await query.fetch();
     return farms.length > 0 ? (farms[0] as unknown as Farm) : null;
@@ -92,7 +92,7 @@ export async function upsertFarms(farms: Farm[], tx?: any): Promise<void> {
       const collection = database.get('farms');
       
       for (const farm of farms) {
-        const existing = await collection.query(Q.where('api_id', farm.id)).fetch();
+        const existing = await collection.query(Q.where('id', farm.id)).fetch();
         
         if (existing.length > 0) {
           // Update existing - ne pas définir les champs readonly

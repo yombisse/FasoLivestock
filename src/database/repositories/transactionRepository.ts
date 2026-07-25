@@ -32,7 +32,26 @@ export async function getLocalTransactions(farmId: string, animalId?: string): P
     const transactions = await database.get('transactions')
       .query(Q.where('farm_id', farmId), Q.where('animal_id', animalId))
       .fetch();
-    const result = transactions as unknown as Transaction[];
+    const result = transactions.map((t: any) => ({
+      id: t.id,
+      type_transaction: t.type_transaction,
+      montant: t.montant,
+      date_transaction: t.date_transaction,
+      description: t.description,
+      farm_id: t.farm_id,
+      animal_id: t.animal_id,
+      evenement_id: t.evenement_id,
+      categorie_id: t.categorie_id,
+      user_id: t.user_id,
+      tiers: t.tiers,
+      numero_transaction: t.numero_transaction,
+      sync_status: t.sync_status,
+      last_modified_by: t.last_modified_by,
+      version: t.version,
+      created_at: t.createdAt?.toISOString() || t.created_at,
+      updated_at: t.updatedAt?.toISOString() || t.updated_at,
+      deleted_at: t.deletedAt?.toISOString() || t.deleted_at,
+    } as Transaction));
     console.log('[TransactionRepository] Loaded transactions for animal:', result.length);
     if (result.length > 0) {
       console.log('[TransactionRepository] Sample transaction montant:', result[0].montant, 'type:', typeof result[0].montant);
@@ -42,7 +61,26 @@ export async function getLocalTransactions(farmId: string, animalId?: string): P
     const transactions = await database.get('transactions')
       .query(Q.where('farm_id', farmId))
       .fetch();
-    const result = transactions as unknown as Transaction[];
+    const result = transactions.map((t: any) => ({
+      id: t.id,
+      type_transaction: t.type_transaction,
+      montant: t.montant,
+      date_transaction: t.date_transaction,
+      description: t.description,
+      farm_id: t.farm_id,
+      animal_id: t.animal_id,
+      evenement_id: t.evenement_id,
+      categorie_id: t.categorie_id,
+      user_id: t.user_id,
+      tiers: t.tiers,
+      numero_transaction: t.numero_transaction,
+      sync_status: t.sync_status,
+      last_modified_by: t.last_modified_by,
+      version: t.version,
+      created_at: t.createdAt?.toISOString() || t.created_at,
+      updated_at: t.updatedAt?.toISOString() || t.updated_at,
+      deleted_at: t.deletedAt?.toISOString() || t.deleted_at,
+    } as Transaction));
     console.log('[TransactionRepository] Loaded transactions for farm:', result.length);
     if (result.length > 0) {
       console.log('[TransactionRepository] Sample transaction montant:', result[0].montant, 'type:', typeof result[0].montant);

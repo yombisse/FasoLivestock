@@ -32,7 +32,7 @@ export async function getLocalTypeEvenements(farmId?: string): Promise<TypeEvene
 export async function getLocalTypeEvenementById(id: string): Promise<TypeEvenement | null> {
   try {
     const typeEvenements = await database.get('type_evenements')
-      .query(Q.where('api_id', id))
+      .query(Q.where('id', id))
       .fetch();
     
     if (typeEvenements.length > 0) {

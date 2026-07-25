@@ -10,12 +10,11 @@ export interface AnimalListItemProps {
   animal: Animal;
   onPress?: (animal: Animal) => void;
   onEdit?: (animal: Animal) => void;
-  onDelete?: (animal: Animal) => void;
   isActive?: boolean;
   healthStatus?: string;
 }
 
-const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, onEdit, onDelete, healthStatus, ...props }) => {
+const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, onEdit, healthStatus, ...props }) => {
   // Get species icon
   const getSpeciesIcon = (especeNom?: string) => {
     if (!especeNom) return 'cow';
@@ -68,17 +67,6 @@ const AnimalListItem: React.FC<AnimalListItemProps> = ({ animal, onPress, onEdit
           }}
         >
           <MaterialCommunityIcons name="pencil" size={20} color="#1976D2" />
-        </TouchableOpacity>
-      )}
-      {onDelete && (
-        <TouchableOpacity 
-          style={styles.actionButton} 
-          onPress={(e) => {
-            e.stopPropagation();
-            onDelete(animal);
-          }}
-        >
-          <MaterialCommunityIcons name="delete" size={20} color="#D32F2F" />
         </TouchableOpacity>
       )}
       <MaterialCommunityIcons name="chevron-right" size={24} color="#BDBDBD" />
