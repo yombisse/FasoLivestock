@@ -18,8 +18,11 @@ export function useAnimals(farmId: string) {
 
     const subscription = database
       .get<WatermelonAnimal>('animals')
-      .query(Q.where('farm_id', farmId))
-      .extend(Q.where('deleted_at', null))
+      .query(
+        Q.where('farm_id', farmId),
+        Q.where('deleted_at', null),
+        Q.sortBy('created_at', Q.desc)
+      )
       .observeWithColumns(['espece_id'])
       .subscribe((collection) => {
         console.log('[AUDIT] useAnimals - Collection updated:', {

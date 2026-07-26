@@ -272,42 +272,42 @@ const SanteCreateScreen = () => {
       case 'vaccination':
         // Rappel créé automatiquement par backend via espece_parametre.intervalle_vaccin_jours
         fields.push(
-          { key: 'nom_vaccin', label: 'Nom du vaccin', placeholder: 'Ex: Rage', type: 'text' },
-          { key: 'lot_vaccin', label: 'Lot', placeholder: 'Numéro de lot', type: 'text' },
-          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
+          { key: 'nom_vaccin', label: 'Nom du vaccin *', placeholder: 'Ex: Rage', type: 'text' },
+          { key: 'lot_vaccin', label: 'Lot', placeholder: 'Numéro de lot', type: 'text', optional: true },
+          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text', optional: true },
         );
         break;
       case 'traitement':
         // Rappel conditionnel via metadonnees.date_rappel_suggeree
         fields.push(
-          { key: 'nom_medicament', label: 'Médicament', placeholder: 'Nom du médicament', type: 'text' },
-          { key: 'dosage', label: 'Dosage', placeholder: 'Ex: 2x par jour', type: 'text' },
-          { key: 'duree', label: 'Durée', placeholder: 'Ex: 7 jours', type: 'text' },
+          { key: 'nom_medicament', label: 'Médicament *', placeholder: 'Nom du médicament', type: 'text' },
+          { key: 'dosage', label: 'Dosage', placeholder: 'Ex: 2x par jour', type: 'text', optional: true },
+          { key: 'duree', label: 'Durée', placeholder: 'Ex: 7 jours', type: 'text', optional: true },
+          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text', optional: true },
           { key: 'date_rappel_suggeree', label: 'Date de rappel (optionnel)', placeholder: 'Pour créer un rappel', type: 'date', optional: true },
-          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
         );
         break;
       case 'maladie':
         // Pas de rappel pour les maladies
         fields.push(
           { key: 'nom_maladie', label: 'Nom de la maladie *', placeholder: 'Ex: Fièvre aphteuse', type: 'text' },
-          { key: 'symptomes', label: 'Symptômes', placeholder: 'Décrire les symptômes', type: 'text' },
-          { key: 'diagnostic', label: 'Diagnostic', placeholder: 'Diagnostic présumé', type: 'text' },
+          { key: 'symptomes', label: 'Symptômes', placeholder: 'Décrire les symptômes', type: 'text', optional: true },
+          { key: 'diagnostic', label: 'Diagnostic', placeholder: 'Diagnostic présumé', type: 'text', optional: true },
           { key: 'gravite', label: 'Gravité', placeholder: 'Légère, Modérée, Grave', type: 'select', options: [
             { label: 'Légère', value: 'legere' },
             { label: 'Modérée', value: 'moderee' },
             { label: 'Grave', value: 'grave' },
-          ]},
-          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
+          ], optional: true },
+          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text', optional: true },
         );
         break;
       case 'surveillance':
         // Rappel conditionnel via metadonnees.date_prochain_controle
         fields.push(
-          { key: 'type_controle', label: 'Type de contrôle', placeholder: 'Ex: Poids, Température', type: 'text' },
-          { key: 'resultat', label: 'Résultat', placeholder: 'Résultat du contrôle', type: 'text' },
-          { key: 'date_prochain_controle', label: 'Date prochain contrôle (optionnel)', placeholder: 'Pour créer un rappel', type: 'date', optional: true },
-          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text' },
+          { key: 'type_controle', label: 'Type de contrôle *', placeholder: 'Ex: Poids, Température', type: 'text' },
+          { key: 'resultat', label: 'Résultat *', placeholder: 'Résultat du contrôle', type: 'text' },
+          { key: 'veterinaire', label: 'Vétérinaire', placeholder: 'Nom du vétérinaire', type: 'text', optional: true },
+          { key: 'date_prochain_controle', label: 'Date prochain contrôle', placeholder: 'Pour créer un rappel', type: 'date', optional: true },
         );
         break;
     }
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: Theme.textPrimary,
-    fontSize: 9,
+    fontSize: 16,
     fontWeight: '500',
   },
   tabTextActive: {

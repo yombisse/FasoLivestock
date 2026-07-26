@@ -15,14 +15,19 @@ export function useEvenementsSanitaires(farmId: string, animalId?: string) {
       return;
     }
 
+    if (!animalId) {
+      console.log('[useEvenementsSanitaires] No animalId provided, returning empty');
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
+
     // Filter by categorie (correctly synced from backend) instead of type_evenement_id (IDs don't match constants)
     const query = database.get('evenements').query(
       Q.where('farm_id', farmId),
-      Q.where('categorie', 'SANITAIRE')
+      Q.where('categorie', 'SANITAIRE'),
+      Q.where('animal_id', animalId)
     );
-    if (animalId) {
-      query.extend(Q.where('animal_id', animalId));
-    }
 
     // DEBUG: Check all events in database
     database.get('evenements').query().fetch().then(allEvents => {
@@ -44,7 +49,7 @@ export function useEvenementsSanitaires(farmId: string, animalId?: string) {
       })));
     });
 
-    const subscription = query.observe().subscribe((collection) => {
+    const subscription = query.observe().subscribe(async (collection) => {
       console.log('[useEvenementsSanitaires] Collection updated:', {
         farmId: farmId,
         animalId: animalId,
@@ -56,37 +61,50 @@ export function useEvenementsSanitaires(farmId: string, animalId?: string) {
         console.log('[useEvenementsSanitaires] SAMPLE EVENT FROM DB:', collection[0]);
       }
 
-      // Convert WatermelonDB Evenement to TypeScript EvenementSanitaire type
-      const convertedEvents = collection.map((event) => ({
-        id: event.id,
-        farm_id: event.farm_id,
-        type_evenement_id: event.type_evenement_id,
-        animal_id: event.animal_id,
-        date_evenement: event.date_evenement,
-        description: event.description,
-        cout: event.cout,
-        categorie: event.categorie as 'SANITAIRE',
-        type: event.type as any,
-        metadonnees: event.metadonnees,
-        statut_avant: event.statut_avant as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
-        statut_apres: event.statut_apres as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
-        transaction_id: event.transaction_id,
-        statut: event.statut,
-        date_fin: event.date_fin,
-        sync_status: event.sync_status as 'synced' | 'pending' | 'conflict',
-        last_modified_by: event.last_modified_by,
-        version: event.version,
-        created_at: event.createdAt?.toISOString() || event.created_at,
-        updated_at: event.updatedAt?.toISOString() || event.updated_at,
-        deleted_at: event.deletedAt?.toISOString() || event.deleted_at,
-      }));
+      // Load animal names for all events
+      const eventsWithAnimalNames = await Promise.all(
+        collection.map(async (event: any) => {
+          let animalName = 'Animal inconnu';
+          try {
+            const animal = await database.get('animals').find(event.animal_id);
+            animalName = (animal as any).nom || 'Animal inconnu';
+          } catch (error) {
+            console.log('[useEvenementsSanitaires] Animal not found:', event.animal_id);
+          }
+
+          return {
+            id: event.id,
+            farm_id: event.farm_id,
+            type_evenement_id: event.type_evenement_id,
+            animal_id: event.animal_id,
+            animal_nom: animalName,
+            date_evenement: event.date_evenement,
+            description: event.description,
+            cout: event.cout,
+            categorie: event.categorie as 'SANITAIRE',
+            type: event.type as any,
+            metadonnees: event.metadonnees,
+            statut_avant: event.statut_avant as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
+            statut_apres: event.statut_apres as 'SAIN' | 'VENDU' | 'MORT' | 'PERDU',
+            transaction_id: event.transaction_id,
+            statut: event.statut,
+            date_fin: event.date_fin,
+            sync_status: event.sync_status as 'synced' | 'pending' | 'conflict',
+            last_modified_by: event.last_modified_by,
+            version: event.version,
+            created_at: event.createdAt?.toISOString() || event.created_at,
+            updated_at: event.updatedAt?.toISOString() || event.updated_at,
+            deleted_at: event.deletedAt?.toISOString() || event.deleted_at,
+          };
+        })
+      );
 
       // Remove duplicates based on id
-      const uniqueEvents = convertedEvents.filter((event, index, self) =>
+      const uniqueEvents = eventsWithAnimalNames.filter((event, index, self) =>
         index === self.findIndex((e) => e.id === event.id)
       );
 
-      console.log('[useEvenementsSanitaires] Unique events count:', uniqueEvents.length, 'out of', convertedEvents.length);
+      console.log('[useEvenementsSanitaires] Unique events count:', uniqueEvents.length, 'out of', eventsWithAnimalNames.length);
 
       setEvents(uniqueEvents);
       setLoading(false);

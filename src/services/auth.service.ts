@@ -75,6 +75,18 @@ const authService = {
   },
 
   /**
+   * Renouvellement du token d'accès
+   */
+  async refreshToken(refreshToken: string): Promise<AuthResponse> {
+    try {
+      const response = await api.post<AuthResponse>('/auth/refresh', { refresh_token: refreshToken });
+      return response.data;
+    } catch (error: any) {
+      throw this.handleError(error);
+    }
+  },
+
+  /**
    * Déconnexion
    */
   async logout(): Promise<AuthResponse> {

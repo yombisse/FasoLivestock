@@ -25,9 +25,9 @@ import { NaissanceRequest } from '../../../types/mouvement.types';
 import { Animal } from '../../../types/animal.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
 import { createNaissance } from '../../../database/repositories/naissanceRepository';
-import { filterFemellesEligiblesNaissance } from '../../../database/repositories/animalRepository';
-import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
+import { getLocalActiveFemales } from '../../../database/repositories/animalRepository';
 import { getLocalLots } from '../../../database/repositories/lotRepository';
+import database from '../../../database/watermelonIndex';
 import { Theme } from '../../../config/colors';
 import { useEspeces } from '../../../hooks/useEspeces';
 import { useAnimals } from '../../../hooks/useAnimals';
@@ -51,6 +51,9 @@ const createBlankNewborn = (id: number): NewbornDraft => ({
   sexe: '',
   poids: '',
 });
+
+// Nombre maximum de petits supportés par naissance
+const MAX_NOMBRE_PETITS = 12;
 
 const AnimalNaissanceScreen = () => {
   const navigation = useNavigation<AnimalNaissanceNavigationProp>();
@@ -78,9 +81,9 @@ const AnimalNaissanceScreen = () => {
   // Load all animals for filtering
   const { animals, loading: loadingAnimals } = useAnimals(farmId || '');
   
-  // Load reproduction events for eligibility filtering
-  const [reproductionEvents, setReproductionEvents] = useState<any[]>([]);
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  // Active females for naissance (no stage constraint - all active females are eligible)
+  const [activeFemales, setActiveFemales] = useState<any[]>([]);
+  const [loadingFemales, setLoadingFemales] = useState(false);
 
   // Lots state
   const [lots, setLots] = useState<any[]>([]);
@@ -91,11 +94,8 @@ const AnimalNaissanceScreen = () => {
     value: lot.id,
   }));
 
-  // Filter eligible females using the utility function
-  const eligibleFemales = reproductionEvents.length > 0 
-    ? filterFemellesEligiblesNaissance(animals, reproductionEvents)
-    : [];
-  const loadingFemales = loadingAnimals || loadingEvents;
+  // All active females are eligible for naissance (no stage constraint)
+  const eligibleFemales = activeFemales;
 
   const formatDate = (value?: Date) => value ? value.toISOString().split('T')[0] : undefined;
 
@@ -105,11 +105,11 @@ const AnimalNaissanceScreen = () => {
       if (farm) {
         setFarmId(farm.id);
         
-        // Load reproduction events for eligibility filtering
-        setLoadingEvents(true);
-        const events = await getReproductionEvents(farm.id);
-        setReproductionEvents(events);
-        setLoadingEvents(false);
+        // Load active females for naissance (all active females are eligible)
+        setLoadingFemales(true);
+        const females = await getLocalActiveFemales(farm.id);
+        setActiveFemales(females);
+        setLoadingFemales(false);
 
         // Load lots for this farm
         const farmLots = await getLocalLots(farm.id);
@@ -117,7 +117,7 @@ const AnimalNaissanceScreen = () => {
       }
     } catch (error) {
       console.error('Error loading active farm:', error);
-      setLoadingEvents(false);
+      setLoadingFemales(false);
     }
   };
 
@@ -142,7 +142,7 @@ const AnimalNaissanceScreen = () => {
   }, [route.params?.motherId]);
 
   const updateNewbornCount = (count: number) => {
-    const safeCount = Math.max(1, Math.min(6, count));
+    const safeCount = Math.max(1, Math.min(MAX_NOMBRE_PETITS, count));
     setFormData((prev) => ({ ...prev, nombrePetits: String(safeCount) }));
 
     setNewborns((prev) => {
@@ -168,7 +168,11 @@ const AnimalNaissanceScreen = () => {
     if (!selectedMother) errors.mother_id = 'Sélectionnez une femelle éligible';
     if (!dateNaissance) errors.dateNaissance = 'Date de naissance requise';
     const count = Number(formData.nombrePetits);
-    if (!count || count < 1) errors.nombrePetits = 'Nombre de petits requis';
+    if (!count || count < 1) {
+      errors.nombrePetits = 'Nombre de petits requis (minimum 1)';
+    } else if (count > MAX_NOMBRE_PETITS) {
+      errors.nombrePetits = `Nombre de petits maximum: ${MAX_NOMBRE_PETITS}`;
+    }
 
     newborns.forEach((newborn, index) => {
       if (!newborn.numero_identification.trim()) {
@@ -276,61 +280,67 @@ const AnimalNaissanceScreen = () => {
             </View>
           ) : null}
 
-          <View style={styles.contextCard}>
-            <AppText style={styles.contextTitle}>Femelle sélectionnée</AppText>
-            <TouchableOpacity 
-              onPress={() => motherPickerRef.current?.present()}
-              activeOpacity={0.7}
-              style={styles.input}
-            >
-              <AppText style={selectedMother ? styles.inputText : styles.inputPlaceholder}>
-                {selectedMother?.nom || 'Sélectionner une femelle'}
-              </AppText>
-            </TouchableOpacity>
-            {fieldErrors.mother_id ? <AppText style={styles.errorText}>{fieldErrors.mother_id}</AppText> : null}
-          </View>
+          <View style={styles.compactForm}>
+            <View style={styles.compactRow}>
+              <View style={styles.compactField}>
+                <AppText style={styles.compactLabel}>Femelle *</AppText>
+                <TouchableOpacity 
+                  onPress={() => motherPickerRef.current?.present()}
+                  activeOpacity={0.7}
+                  style={styles.compactInput}
+                >
+                  <AppText style={selectedMother ? styles.compactInputText : styles.compactInputPlaceholder}>
+                    {selectedMother?.nom || 'Sélectionner'}
+                  </AppText>
+                </TouchableOpacity>
+                {fieldErrors.mother_id ? <AppText style={styles.errorText}>{fieldErrors.mother_id}</AppText> : null}
+              </View>
 
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Date de naissance *</AppText>
-            <AppDateTimePicker
-              value={dateNaissance}
-              onChange={setDateNaissance}
-              placeholder="Sélectionner la date"
-            />
-            {fieldErrors.dateNaissance ? <AppText style={styles.errorText}>{fieldErrors.dateNaissance}</AppText> : null}
-          </View>
+              <View style={styles.compactField}>
+                <AppText style={styles.compactLabel}>Date *</AppText>
+                <AppDateTimePicker
+                  value={dateNaissance}
+                  onChange={setDateNaissance}
+                  placeholder="Date"
+                />
+                {fieldErrors.dateNaissance ? <AppText style={styles.errorText}>{fieldErrors.dateNaissance}</AppText> : null}
+              </View>
 
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Nombre de petits *</AppText>
-            <AppTextInput
-              style={styles.input}
-              value={formData.nombrePetits}
-              onChangeText={(text) => updateNewbornCount(Number(text || 1))}
-              keyboardType="numeric"
-              placeholder="Ex. 2"
-            />
-            {fieldErrors.nombrePetits ? <AppText style={styles.errorText}>{fieldErrors.nombrePetits}</AppText> : null}
-          </View>
+              <View style={styles.compactField}>
+                <AppText style={styles.compactLabel}>Petits *</AppText>
+                <AppTextInput
+                  style={styles.compactInput}
+                  value={formData.nombrePetits}
+                  onChangeText={(text) => updateNewbornCount(Number(text || 1))}
+                  keyboardType="numeric"
+                  placeholder="Nb"
+                />
+                {fieldErrors.nombrePetits ? <AppText style={styles.errorText}>{fieldErrors.nombrePetits}</AppText> : null}
+              </View>
+            </View>
 
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Lot (optionnel)</AppText>
-            <AppSelect
-              value={selectedLotId}
-              onValueChange={setSelectedLotId}
-              options={lotOptions}
-              placeholder="Sélectionner un lot"
-            />
-          </View>
+            <View style={styles.compactRow}>
+              <View style={styles.compactField}>
+                <AppText style={styles.compactLabel}>Lot</AppText>
+                <AppSelect
+                  value={selectedLotId}
+                  onValueChange={setSelectedLotId}
+                  options={lotOptions}
+                  placeholder="Lot"
+                />
+              </View>
 
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Observation</AppText>
-            <AppTextInput
-              style={[styles.input, styles.multilineInput]}
-              value={formData.observation}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, observation: text }))}
-              placeholder="Détails éventuels"
-              multiline
-            />
+              <View style={styles.compactField}>
+                <AppText style={styles.compactLabel}>Observation</AppText>
+                <AppTextInput
+                  style={[styles.compactInput, styles.compactMultiline]}
+                  value={formData.observation}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, observation: text }))}
+                  placeholder="Notes"
+                  multiline
+                />
+              </View>
+            </View>
           </View>
 
           <View style={styles.fieldContainer}>
@@ -407,7 +417,7 @@ const AnimalNaissanceScreen = () => {
       <AnimalPicker
         ref={motherPickerRef}
         animals={eligibleFemales}
-        title="Sélectionner une femelle (gestation en cours)"
+        title="Sélectionner une femelle"
         onSelect={(animal) => setSelectedMother(animal)}
         selectedId={selectedMother?.id}
       />
@@ -572,6 +582,47 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: 8,
+  },
+  compactForm: {
+    backgroundColor: Theme.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  compactRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  compactField: {
+    flex: 1,
+  },
+  compactLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+    color: Theme.textPrimary,
+  },
+  compactInput: {
+    backgroundColor: Theme.inputBackground,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minHeight: 40,
+  },
+  compactInputText: {
+    fontSize: 14,
+    color: Theme.textPrimary,
+  },
+  compactInputPlaceholder: {
+    fontSize: 14,
+    color: Theme.textSecondary,
+  },
+  compactMultiline: {
+    minHeight: 60,
+    textAlignVertical: 'top',
   },
 });
 

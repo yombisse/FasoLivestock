@@ -17,6 +17,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useReproductionEvents } from '../../../hooks/useReproductionEvents';
 import { ReproductionHistoriqueAnimal } from '../../../types/reproduction.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import database from '../../../database/watermelonIndex';
 
 type AnimalReproductionHistoriqueRouteProp = RouteProp<CheptelStackParamList, 'AnimalReproductionHistorique'>;
 type AnimalReproductionHistoriqueNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalReproductionHistorique'>;
@@ -32,6 +33,32 @@ const AnimalReproductionHistoriqueScreen = () => {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const modalRef = useRef<EventDetailModalRef>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
+  const [animal, setAnimal] = useState<any>(null);
+
+  // Check if animalId is provided
+  if (!animalId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader
+          title="Historique reproductif"
+          showBackButton
+          onBackPress={() => navigation.goBack()}
+          style={styles.header}
+          showBackground={false}
+          height={120}
+        />
+        <View style={styles.errorState}>
+          <MaterialCommunityIcons name="alert-circle" size={48} color="#D32F2F" />
+          <AppText style={styles.errorTitle} fontWeight="bold">
+            Animal non spécifié
+          </AppText>
+          <AppText style={styles.errorMessage} color="#757575">
+            Veuillez sélectionner un animal pour voir son historique reproductif
+          </AppText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const loadActiveFarm = async () => {
     try {
@@ -44,11 +71,22 @@ const AnimalReproductionHistoriqueScreen = () => {
     }
   };
 
+  const loadAnimal = async () => {
+    try {
+      const animalRecord = await database.get('animals').find(animalId);
+      await (animalRecord as any).espece;
+      setAnimal(animalRecord);
+    } catch (error) {
+      console.error('Error loading animal:', error);
+    }
+  };
+
   // Use reactive hook for events
   const { events: dbEvents, loading: eventsLoading } = useReproductionEvents(farmId || '', animalId);
 
   useEffect(() => {
     loadActiveFarm();
+    loadAnimal();
   }, []);
 
   useEffect(() => {
@@ -133,12 +171,15 @@ const AnimalReproductionHistoriqueScreen = () => {
         <View style={styles.eventContent}>
           <View style={styles.eventHeader}>
             <AppText style={styles.eventType} fontWeight="600">
-              {item.type_nom || item.description || 'Événement reproductif'}
+              {item.animal_nom || 'Animal inconnu'}
             </AppText>
             <AppText style={styles.eventDate} color="#757575" fontSize={12}>
               {formatDate(item.date_evenement)}
             </AppText>
           </View>
+          <AppText style={styles.eventSubtitle} color="#757575" fontSize={13}>
+            {item.type_nom || item.description || 'Événement reproductif'}
+          </AppText>
           {item.cout && (
             <AppText style={styles.eventAmount} fontWeight="600">
               Coût: {formatAmount(item.cout)}
@@ -165,6 +206,7 @@ const AnimalReproductionHistoriqueScreen = () => {
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         showBackground={false}
+        height={120}
       />
 
       <View style={styles.content}>
@@ -181,7 +223,7 @@ const AnimalReproductionHistoriqueScreen = () => {
             <AppText style={styles.errorMessage} color="#757575">
               {error}
             </AppText>
-            <AppButton title="Réessayer" onPress={loadHistorique} />
+            <AppButton title="Retour" onPress={() => navigation.goBack()} />
           </View>
         ) : !historique || historique.evenements_reproductifs.length === 0 ? (
           renderEmptyState()
@@ -255,6 +297,10 @@ const styles = StyleSheet.create({
   },
   eventDate: {
     fontSize: 12,
+  },
+  eventSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
   },
   eventDescription: {
     fontSize: 14,

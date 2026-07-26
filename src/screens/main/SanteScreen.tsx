@@ -8,7 +8,7 @@ import AppHeader from '../../components/AppHeader';
 import { farmStorage } from '../../storage/farmStorage';
 import { Farm } from '../../types/farm.types';
 import { deleteEvenementSanitaire } from '../../database/repositories/santeEvenementsRepository';
-import { useEvenementsSanitaires } from '../../hooks/useEvenementsSanitaires';
+import { useEvenementsSanitairesForFarm } from '../../hooks/useEvenementsSanitairesForFarm';
 import { EvenementSanitaire } from '../../types/sante.types';
 import { getHealthEventColor } from '../../config/colors';
 import { Theme } from '../../config/colors';
@@ -27,8 +27,8 @@ const SanteScreen = () => {
   // Load type evenements for name mapping
   const { typeEvenements } = useTypeEvenements(activeFarm?.id);
   
-  // Use reactive hook for events
-  const { events: dbEvents, loading: eventsLoading } = useEvenementsSanitaires(activeFarm?.id || '');
+  // Use reactive hook for farm-wide events
+  const { events: dbEvents, loading: eventsLoading } = useEvenementsSanitairesForFarm(activeFarm?.id || '');
 
   const loadActiveFarm = async () => {
     try {
@@ -82,13 +82,19 @@ const SanteScreen = () => {
           } catch {
             metadata = {};
           }
-          
+
           // Format subtitle as "Type-Nom" (e.g., "Vaccination-Rage", "Maladie-Fièvre")
           if (metadata.nom_vaccin) {
             typeNom = `Vaccination-${metadata.nom_vaccin}`;
           }
           else if (metadata.nom_maladie) {
             typeNom = `Maladie-${metadata.nom_maladie}`;
+          }
+          else if (metadata.nom_medicament) {
+            typeNom = `Traitement-${metadata.nom_medicament}`;
+          }
+          else if (metadata.type_controle) {
+            typeNom = `Surveillance-${metadata.type_controle}`;
           }
           
           return {
@@ -116,9 +122,13 @@ const SanteScreen = () => {
   }, []);
 
 
-  // Filter events by type
-  const evenements = events.filter(e => !e.date_fin);
-  const rappels = events.filter(e => e.date_fin);
+  // Filter events by type and sort by date (newest first)
+  const evenements = events.filter(e => !e.date_fin).sort((a, b) => {
+    return new Date(b.date_evenement).getTime() - new Date(a.date_evenement).getTime();
+  });
+  const rappels = events.filter(e => e.date_fin).sort((a, b) => {
+    return new Date(b.date_evenement).getTime() - new Date(a.date_evenement).getTime();
+  });
   const displayedEvents = activeTab === 'evenement' ? evenements : rappels;
 
   const openAnimalSelection = () => {
@@ -173,8 +183,7 @@ const SanteScreen = () => {
             try {
               await deleteEvenementSanitaire(event.id);
               console.log('[SanteScreen] Event deleted successfully:', event.id);
-              // Reload events after deletion
-              await loadEvents();
+              // Events will reload automatically via reactive hook
             } catch (error) {
               console.error('[SanteScreen] Error deleting event:', error);
               Alert.alert('Erreur', 'Impossible de supprimer cet événement');

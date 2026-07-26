@@ -49,11 +49,22 @@ const Login = ({navigation}: any) => {
       if (response.success && response.data?.token) {
         // Stocker le token et les données utilisateur
         await authStorage.setToken(response.data.token);
+        
+        // Stocker les données du token avec expiration et refresh token
+        const expiresIn = response.data.expires_in || 3600; // 1 heure par défaut
+        const tokenData = {
+          token: response.data.token,
+          refresh_token: response.data.refresh_token || '',
+          expires_at: Date.now() + (expiresIn * 1000),
+        };
+        await authStorage.setTokenData(tokenData);
+        
         if (response.data.user) {
           await authStorage.setUser(response.data.user);
         }
         
         console.log('Login successful:', response.data);
+        console.log('[Login] Token expires at:', new Date(tokenData.expires_at).toISOString());
 
         // Charger les fermes du serveur
         try {

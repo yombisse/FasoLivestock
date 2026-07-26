@@ -210,6 +210,8 @@ export function validerMiseBas(
 
 /**
  * Valide selon le type d'événement
+ * La cohérence de stade est assurée en amont par le picker (getStadeReproduction)
+ * Cette validation ne vérifie que le sexe de l'animal
  */
 export function validerEvenementReproduction(
   typeEvenement: string,
@@ -218,23 +220,20 @@ export function validerEvenementReproduction(
   evenementsExistants?: Evenement[],
   dateEvenement?: string
 ): ValidationResult {
-  switch (typeEvenement) {
-    case 'Saillie':
-      return validerSaillie(animal, especeParametres, evenementsExistants);
-    
-    case 'Gestation':
-      if (!dateEvenement) {
-        return { valide: false, erreur: "Date de confirmation requise." };
-      }
-      return validerGestation(animal, dateEvenement, evenementsExistants);
-    
-    case 'Mise bas':
-      if (!dateEvenement) {
-        return { valide: false, erreur: "Date de mise bas requise." };
-      }
-      return validerMiseBas(animal, dateEvenement, evenementsExistants);
-    
-    default:
-      return { valide: true }; // Pas de validation pour les autres types
+  // Vérifier que l'animal est une femelle pour tous les événements reproductifs
+  if (animal.sexe !== 'femelle') {
+    return {
+      valide: false,
+      erreur: "Un événement reproductif ne peut être enregistré que sur un animal femelle."
+    };
   }
+
+  // Vérifier la date si requise
+  if (dateEvenement && typeEvenement !== 'Saillie') {
+    if (!dateEvenement) {
+      return { valide: false, erreur: "Date requise." };
+    }
+  }
+
+  return { valide: true };
 }

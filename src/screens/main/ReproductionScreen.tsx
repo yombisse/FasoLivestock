@@ -14,12 +14,13 @@ import AppText from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import AppHeader from '../../components/AppHeader';
 import reproductionService from '../../services/reproduction.service';
-import { useReproductionEvents } from '../../hooks/useReproductionEvents';
+import { useReproductionEventsForFarm } from '../../hooks/useReproductionEventsForFarm';
 import { authStorage } from '../../storage/authStorage';
 import { farmStorage } from '../../storage/farmStorage';
 import { ReproductionEvent, ReproductionEventType } from '../../types/reproduction.types';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Theme } from '../../config/colors';
+import database from '../../database/watermelonIndex';
 
 // Configuration des types reproductifs avec icônes et couleurs
 const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
@@ -113,8 +114,8 @@ const ReproductionScreen = () => {
     void loadData();
   }, []);
 
-  // Use reactive hook for reproduction events
-  const { events: dbEvents, loading: eventsLoading } = useReproductionEvents(farmId || '');
+  // Use reactive hook for farm-wide reproduction events
+  const { events: dbEvents, loading: eventsLoading } = useReproductionEventsForFarm(farmId || '');
 
   useEffect(() => {
     if (dbEvents) {

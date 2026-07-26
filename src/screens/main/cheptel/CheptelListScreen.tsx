@@ -378,6 +378,7 @@ const styles = StyleSheet.create({
   tabstyle: {
     paddingVertical: 8,
     paddingHorizontal: 10,
+    height:40
   },
   counter: {
     fontSize: 14,

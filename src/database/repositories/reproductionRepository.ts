@@ -1,6 +1,7 @@
 import database from '../watermelonIndex';
 import { Q } from '@nozbe/watermelondb';
 import { createLocalRecord } from './baseRepository';
+import { getStadeReproduction } from '../../utils/reproductionState';
 
 export interface EvenementReproductif {
   id: string;
@@ -22,6 +23,13 @@ export interface EvenementReproductif {
 }
 
 export async function createReproductionEvent(data: Omit<EvenementReproductif, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<EvenementReproductif> {
+  console.log('[AUDIT-PROMPT2] Creating reproduction event with categorie value:', {
+    categorie: data.categorie,
+    categorie_type: typeof data.categorie,
+    categorie_length: data.categorie?.length,
+    categorie_trimmed: data.categorie?.trim(),
+    categorie_upper: data.categorie?.toUpperCase(),
+  });
   const result = await createLocalRecord<EvenementReproductif>('evenements', data);
   console.log('[AUDIT] Reproduction event created:', {
     local_id: result.id,
@@ -68,13 +76,35 @@ export async function getEvenementReproductifById(id: string): Promise<Evenement
 }
 
 export async function getActiveGestations(farmId: string): Promise<EvenementReproductif[]> {
+  // Get all reproduction events
   const evenements = await getReproductionEvents(farmId);
-  const today = new Date();
-  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  
-  return evenements.filter(e => {
-    const eventDate = new Date(e.date_evenement);
-    const isGestation = e.type_evenement_id === 'Gestation' || e.type_evenement_id === 'GESTATION';
-    return isGestation && eventDate >= thirtyDaysAgo && eventDate <= today;
-  }).slice(0, 5);
+
+  // Get unique animal IDs from reproduction events
+  const animalIds = [...new Set(evenements.map(e => e.animal_id))];
+
+  // Check reproduction stage for each animal
+  const gestationAnimals: string[] = [];
+  for (const animalId of animalIds) {
+    try {
+      const stage = await getStadeReproduction(animalId);
+      if (stage === 'GESTATION') {
+        gestationAnimals.push(animalId);
+      }
+    } catch (error) {
+      console.error('[getActiveGestations] Error getting stage for animal', animalId, error);
+    }
+  }
+
+  // Filter events for animals with GESTATION stage
+  const gestationEvents = evenements.filter(e => gestationAnimals.includes(e.animal_id));
+
+  // Sort by date (oldest first) to show those about to give birth
+  gestationEvents.sort((a, b) => {
+    const dateA = new Date(a.date_evenement).getTime();
+    const dateB = new Date(b.date_evenement).getTime();
+    return dateA - dateB;
+  });
+
+  // Limit to 5 (will be further limited to 2 in HomeScreen)
+  return gestationEvents.slice(0, 5);
 }

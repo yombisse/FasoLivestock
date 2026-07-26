@@ -14,6 +14,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AppText from '../../../components/AppText';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
+import AppTab from '../../../components/AppTab';
 import TransactionListItem from '../../../components/list/TransactionListItem';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { authStorage } from '../../../storage/authStorage';
@@ -251,6 +252,14 @@ const TransactionListScreen = () => {
     />
   );
 
+  // Tab options for transaction filters
+  const transactionTabOptions = [
+    { id: 'tout', label: 'Tout', count: transactions?.length || 0 },
+    { id: 'ventes', label: 'Ventes', count: bilan?.total_revenus ? Math.floor(bilan.total_revenus) : 0 },
+    { id: 'achats', label: 'Achats', count: bilan?.total_charges ? Math.floor(bilan.total_charges) : 0 },
+    { id: 'transferts', label: 'Transferts', count: bilan?.total_transferts ? Math.floor(bilan.total_transferts) : 0 },
+  ];
+
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -345,40 +354,14 @@ const TransactionListScreen = () => {
       <View style={styles.content}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
 
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'tout' && styles.tabActive]}
-            onPress={() => setActiveTab('tout')}
-          >
-            <AppText style={[styles.tabText, activeTab === 'tout' && styles.tabTextActive]}>
-              Tout ({transactions?.length || 0})
-            </AppText>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'ventes' && styles.tabActive]}
-            onPress={() => setActiveTab('ventes')}
-          >
-            <AppText style={[styles.tabText, activeTab === 'ventes' && styles.tabTextActive]}>
-              Ventes ({bilan?.total_revenus ? Math.floor(bilan.total_revenus) : 0})
-            </AppText>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'achats' && styles.tabActive]}
-            onPress={() => setActiveTab('achats')}
-          >
-            <AppText style={[styles.tabText, activeTab === 'achats' && styles.tabTextActive]}>
-              Achats ({bilan?.total_charges ? Math.floor(bilan.total_charges) : 0})
-            </AppText>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'transferts' && styles.tabActive]}
-            onPress={() => setActiveTab('transferts')}
-          >
-            <AppText style={[styles.tabText, activeTab === 'transferts' && styles.tabTextActive]}>
-              Transferts ({bilan?.total_transferts ? Math.floor(bilan.total_transferts) : 0})
-            </AppText>
-          </TouchableOpacity>
-        </View>
+        <AppTab
+          options={transactionTabOptions}
+          activeTab={activeTab}
+          onTabChange={(tabId) => setActiveTab(tabId as any)}
+          style={styles.tabsContainer}
+          tabStyle={styles.tab}
+          textStyle={styles.tabText}
+        />
 
         {renderBilanCard()}
 
@@ -481,29 +464,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   tabsContainer: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingVertical: 8,
+    maxHeight: 40,
   },
   tab: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: Theme.white,
-    alignItems: 'center',
-  },
-  tabActive: {
-    backgroundColor: Theme.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minHeight: 40,
   },
   tabText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Theme.textSecondary,
-  },
-  tabTextActive: {
-    color: '#FFFFFF',
+    fontSize: 13,
   },
   bilanCard: {
     backgroundColor: Theme.white,

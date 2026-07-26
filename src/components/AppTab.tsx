@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, TextStyle } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, TextStyle, ScrollView } from 'react-native';
 import AppText from './AppText';
 
 export interface TabOption {
@@ -28,7 +28,11 @@ const AppTab: React.FC<AppTabProps> = ({
   activeTextStyle
 }) => {
   return (
-    <View style={[styles.container, style]}>
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={[styles.container, style]}
+    >
       {options.map((option) => (
         <TouchableOpacity
           key={option.id}
@@ -41,7 +45,7 @@ const AppTab: React.FC<AppTabProps> = ({
           </AppText>
         </TouchableOpacity>
       ))}
-    </View>
+    </ScrollView>
   );
 };
 
@@ -49,14 +53,15 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     marginBottom: 16,
+    paddingHorizontal: 16,
   },
   tab: {
-    flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: '#F5F5F5',
     marginRight: 8,
+    minWidth: 80,
   },
   tabActive: {
     backgroundColor: '#E8F5E9',

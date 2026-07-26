@@ -17,6 +17,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useEvenementsSanitaires } from '../../../hooks/useEvenementsSanitaires';
 import { SanteHistoriqueAnimal } from '../../../types/sante.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import database from '../../../database/watermelonIndex';
 
 type AnimalSanteHistoriqueRouteProp = RouteProp<CheptelStackParamList, 'AnimalSanteHistorique'>;
 type AnimalSanteHistoriqueNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalSanteHistorique'>;
@@ -32,6 +33,32 @@ const AnimalSanteHistoriqueScreen = () => {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const modalRef = useRef<EventDetailModalRef>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
+  const [animal, setAnimal] = useState<any>(null);
+
+  // Check if animalId is provided
+  if (!animalId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader
+          title="Historique sanitaire"
+          showBackButton
+          onBackPress={() => navigation.goBack()}
+          style={styles.header}
+          showBackground={false}
+          height={120}
+        />
+        <View style={styles.errorState}>
+          <MaterialCommunityIcons name="alert-circle" size={48} color="#D32F2F" />
+          <AppText style={styles.errorTitle} fontWeight="bold">
+            Animal non spécifié
+          </AppText>
+          <AppText style={styles.errorMessage} color="#757575">
+            Veuillez sélectionner un animal pour voir son historique sanitaire
+          </AppText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const loadActiveFarm = async () => {
     try {
@@ -44,11 +71,22 @@ const AnimalSanteHistoriqueScreen = () => {
     }
   };
 
+  const loadAnimal = async () => {
+    try {
+      const animalRecord = await database.get('animals').find(animalId);
+      await (animalRecord as any).espece;
+      setAnimal(animalRecord);
+    } catch (error) {
+      console.error('Error loading animal:', error);
+    }
+  };
+
   // Use reactive hook for events
   const { events: dbEvents, loading: eventsLoading } = useEvenementsSanitaires(farmId || '', animalId);
 
   useEffect(() => {
     loadActiveFarm();
+    loadAnimal();
   }, []);
 
   useEffect(() => {
@@ -129,12 +167,15 @@ const AnimalSanteHistoriqueScreen = () => {
         <View style={styles.eventContent}>
           <View style={styles.eventHeader}>
             <AppText style={styles.eventType} fontWeight="600">
-              {item.type_nom || item.description || 'Événement sanitaire'}
+              {item.animal_nom || 'Animal inconnu'}
             </AppText>
             <AppText style={styles.eventDate} color="#757575" fontSize={12}>
               {formatDate(item.date_evenement)}
             </AppText>
           </View>
+          <AppText style={styles.eventSubtitle} color="#757575" fontSize={13}>
+            {item.type_nom || item.description || 'Événement sanitaire'}
+          </AppText>
           {item.cout && (
             <AppText style={styles.eventAmount} fontWeight="600">
               Coût: {formatAmount(item.cout)}
@@ -161,6 +202,7 @@ const AnimalSanteHistoriqueScreen = () => {
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         showBackground={false}
+        height={120}
       />
 
       <View style={styles.content}>
@@ -177,13 +219,13 @@ const AnimalSanteHistoriqueScreen = () => {
             <AppText style={styles.errorMessage} color="#757575">
               {error}
             </AppText>
-            <AppButton title="Réessayer" onPress={loadHistorique} />
+            <AppButton title="Retour" onPress={() => navigation.goBack()} />
           </View>
-        ) : !historique || !historique.events || historique.events.length === 0 ? (
+        ) : !historique || !(historique as any).events || (historique as any).events.length === 0 ? (
           renderEmptyState()
         ) : (
           <FlatList
-            data={historique.events}
+            data={(historique as any).events}
             renderItem={renderEventItem}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
@@ -251,6 +293,10 @@ const styles = StyleSheet.create({
   },
   eventDate: {
     fontSize: 12,
+  },
+  eventSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
   },
   eventDescription: {
     fontSize: 14,

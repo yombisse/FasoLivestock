@@ -36,6 +36,9 @@ export interface AuthResponse {
   message: string;
   data?: {
     token?: string;
+    refresh_token?: string;
+    expires_in?: number; // en secondes
+    token_type?: string;
     user?: {
       id: string;
       fullName: string;
@@ -44,6 +47,12 @@ export interface AuthResponse {
     verification_id?: string;
     pending_2fa?: boolean;
   };
+}
+
+export interface TokenData {
+  token: string;
+  refresh_token: string;
+  expires_at: number; // timestamp en millisecondes
 }
 
 export interface ErrorResponse {

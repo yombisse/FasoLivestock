@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useRef, useState, useMemo } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, TextInput, FlatList, ActivityIndicator, Platform, KeyboardAvoidingView, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { Modalize } from 'react-native-modalize';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -94,7 +94,8 @@ const AnimalPicker = forwardRef<AnimalPickerRef, AnimalPickerProps>(({
     // Filter to show only alive and present animals (exclude MORT, VENDU, PERDU)
     result = result.filter(animal => {
       const excludedStatuses = ['MORT', 'VENDU', 'PERDU'];
-      return !excludedStatuses.includes(animal.statut || '');
+      const statut = animal.statut || animal._raw?.statut || '';
+      return !excludedStatuses.includes(statut);
     });
     console.log('[AnimalPicker] After alive/present filter:', result.length);
 
@@ -135,12 +136,13 @@ const AnimalPicker = forwardRef<AnimalPickerRef, AnimalPickerProps>(({
   return (
     <Modalize
       ref={modalizeRef}
-      snapPoint={70}
+      adjustToContentHeight={true}
       modalStyle={styles.modal}
       handleStyle={styles.indicator}
       keyboardAvoidingBehavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardAvoidingOffset={Platform.OS === 'android' ? 80 : 0}
       withHandle={true}
+      disableScrollIfPossible={false}
       flatListProps={{
         data: [
           { type: 'header', title },
@@ -254,8 +256,6 @@ const styles = StyleSheet.create({
   },
   container: {
     padding: 16,
-    height: '70%',
-    
   },
   title: {
     fontSize: 16,

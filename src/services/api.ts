@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { authStorage } from '../storage/authStorage';
 import { farmStorage } from '../storage/farmStorage';
+import authService from './auth.service';
 
 const API_BASE_URL = 'https://headscarf-spotless-onto.ngrok-free.dev/api';
 //'http://192.168.11.200:8000/api'
@@ -8,6 +9,10 @@ const API_BASE_URL = 'https://headscarf-spotless-onto.ngrok-free.dev/api';
 //'http://192.168.100.50:8000/api'
 //'http://10.0.2.2:8000/api'
 // //' URL de production
+
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
 const getErrorMessage = (error: any): string => {
   const backendMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message;
 
@@ -51,6 +56,15 @@ const buildApiError = (error: any): Error => {
   apiError.data = error?.response?.data;
   apiError.status = error?.response?.status;
   return apiError;
+};
+
+const subscribeTokenRefresh = (callback: (token: string) => void) => {
+  refreshSubscribers.push(callback);
+};
+
+const onTokenRefreshed = (token: string) => {
+  refreshSubscribers.forEach(callback => callback(token));
+  refreshSubscribers = [];
 };
 
 const api = axios.create({
@@ -100,10 +114,65 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    const originalRequest = error.config;
+
     if (error.response) {
       const apiError = buildApiError(error);
       console.error('API Error:', apiError.message, error.response.data);
 
+      // Gestion du rafraîchissement automatique du token
+      if (error.response.status === 401 && !originalRequest._retry) {
+        if (isRefreshing) {
+          // Si un rafraîchissement est déjà en cours, attendre
+          return new Promise((resolve) => {
+            subscribeTokenRefresh((token: string) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+              resolve(api(originalRequest));
+            });
+          });
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          const tokenData = await authStorage.getTokenData();
+          if (tokenData && tokenData.refresh_token) {
+            console.log('[API] Attempting to refresh token');
+            const response = await authService.refreshToken(tokenData.refresh_token);
+            
+            if (response.success && response.data?.token) {
+              const newToken = response.data.token;
+              const newRefreshToken = response.data.refresh_token || tokenData.refresh_token;
+              const expiresIn = response.data.expires_in || 3600; // 1 heure par défaut
+              
+              // Mettre à jour le token dans le storage
+              await authStorage.setToken(newToken);
+              await authStorage.setTokenData({
+                token: newToken,
+                refresh_token: newRefreshToken,
+                expires_at: Date.now() + (expiresIn * 1000),
+              });
+              
+              console.log('[API] Token refreshed successfully');
+              onTokenRefreshed(newToken);
+              
+              // Réessayer la requête originale avec le nouveau token
+              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+              return api(originalRequest);
+            }
+          }
+        } catch (refreshError) {
+          console.error('[API] Token refresh failed:', refreshError);
+          // Si le rafraîchissement échoue, déconnecter l'utilisateur
+          await authStorage.clearAuth();
+          return Promise.reject(new Error('Session expirée. Veuillez vous reconnecter.'));
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
+      // Pour les autres erreurs 401, déconnecter l'utilisateur
       if (error.response.status === 401) {
         try {
           await authStorage.clearAuth();

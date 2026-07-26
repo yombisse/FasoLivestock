@@ -17,6 +17,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { observeLocalTransactions } from '../../../database/repositories/transactionRepository';
 import { TransactionHistoriqueAnimal } from '../../../types/transaction.types';
 import { CheptelStackParamList } from '../../../navigation/stack/CheptelStack';
+import database from '../../../database/watermelonIndex';
 
 type AnimalTransactionHistoriqueRouteProp = RouteProp<CheptelStackParamList, 'AnimalTransactionHistorique'>;
 type AnimalTransactionHistoriqueNavigationProp = StackNavigationProp<CheptelStackParamList, 'AnimalTransactionHistorique'>;
@@ -32,6 +33,32 @@ const AnimalTransactionHistoriqueScreen = () => {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const modalRef = useRef<EventDetailModalRef>(null);
   const [farmId, setFarmId] = useState<string | null>(null);
+  const [animal, setAnimal] = useState<any>(null);
+
+  // Check if animalId is provided
+  if (!animalId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader
+          title="Historique transactionnel"
+          showBackButton
+          onBackPress={() => navigation.goBack()}
+          style={styles.header}
+          showBackground={false}
+          height={120}
+        />
+        <View style={styles.errorState}>
+          <MaterialCommunityIcons name="alert-circle" size={48} color="#D32F2F" />
+          <AppText style={styles.errorTitle} fontWeight="bold">
+            Animal non spécifié
+          </AppText>
+          <AppText style={styles.errorMessage} color="#757575">
+            Veuillez sélectionner un animal pour voir son historique transactionnel
+          </AppText>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const loadActiveFarm = async () => {
     try {
@@ -44,15 +71,26 @@ const AnimalTransactionHistoriqueScreen = () => {
     }
   };
 
+  const loadAnimal = async () => {
+    try {
+      const animalRecord = await database.get('animals').find(animalId);
+      await (animalRecord as any).espece;
+      setAnimal(animalRecord);
+    } catch (error) {
+      console.error('Error loading animal:', error);
+    }
+  };
+
   useEffect(() => {
     loadActiveFarm();
+    loadAnimal();
   }, []);
 
   // Use reactive observable for transactions
   useEffect(() => {
     if (!farmId) return;
 
-    const subscription = observeLocalTransactions(farmId, animalId).subscribe((transactions) => {
+    const subscription = observeLocalTransactions(farmId, animalId).subscribe((transactions: any[]) => {
       // Calculate statistics
       const total_revenus = transactions
         .filter((t: any) => t.type_transaction === 'ENTREE')
@@ -124,6 +162,9 @@ const AnimalTransactionHistoriqueScreen = () => {
           {item.type_transaction === 'ENTREE' ? '+' : '-'}{formatAmount(item.montant)}
         </AppText>
       </View>
+      <AppText style={styles.transactionTitle} fontWeight="600">
+        {item.animal_nom || 'Animal inconnu'}
+      </AppText>
       <AppText style={styles.transactionDescription} color="#757575" fontSize={12}>
         {item.description || 'Transaction'}
       </AppText>
@@ -156,6 +197,7 @@ const AnimalTransactionHistoriqueScreen = () => {
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         showBackground={false}
+        height={120}
       />
 
       <View style={styles.content}>
@@ -172,7 +214,7 @@ const AnimalTransactionHistoriqueScreen = () => {
             <AppText style={styles.errorMessage} color="#757575">
               {error}
             </AppText>
-            <AppButton title="Réessayer" onPress={loadHistorique} />
+            <AppButton title="Retour" onPress={() => navigation.goBack()} />
           </View>
         ) : !historique || historique.transactions.length === 0 ? (
           renderEmptyState()
@@ -285,6 +327,11 @@ const styles = StyleSheet.create({
   },
   transactionAmount: {
     fontSize: 16,
+    color: '#212121',
+  },
+  transactionTitle: {
+    fontSize: 16,
+    marginBottom: 4,
     color: '#212121',
   },
   transactionDescription: {

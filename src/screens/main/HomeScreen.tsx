@@ -55,7 +55,15 @@ const HomeScreen = () => {
     try {
       const user = await authStorage.getUser();
       if (user) {
-        setUserName(user.nom || user.email || '');
+        if (user.nom) {
+          setUserName(user.nom);
+        } else if (user.email) {
+          // Extract name from email (part before @)
+          const emailPrefix = user.email.split('@')[0];
+          setUserName(emailPrefix);
+        } else {
+          setUserName('');
+        }
       }
     } catch (error) {
       console.error('Error loading user name:', error);
@@ -325,21 +333,21 @@ const HomeScreen = () => {
               {/* Section Alertes Santé */}
               <View style={styles.sectionHeader}>
                 <AppText style={styles.sectionTitle}>Alertes santé</AppText>
-                <TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.navigate('Sante' as never)}>
                   <AppText style={styles.seeAll}>Voir tout</AppText>
                 </TouchableOpacity>
               </View>
 
               {healthAlerts.length > 0 ? (
-                healthAlerts.map((alert, index) => {
+                healthAlerts.slice(0, 2).map((alert, index) => {
                   const status = getAlertStatus(alert.type_evenement);
                   return (
                     <View key={index} style={styles.alertCard}>
                       <View style={[styles.alertIconCircle, { backgroundColor: getAlertIconBg(alert.type_evenement) }]}>
-                        <MaterialCommunityIcons 
-                          name={getAlertIcon(alert.type_evenement)} 
-                          size={20} 
-                          color={getAlertIconColor(alert.type_evenement)} 
+                        <MaterialCommunityIcons
+                          name={getAlertIcon(alert.type_evenement)}
+                          size={20}
+                          color={getAlertIconColor(alert.type_evenement)}
                         />
                       </View>
                       <View style={styles.alertContent}>
@@ -363,7 +371,7 @@ const HomeScreen = () => {
               {/* Section Bilan Transactions */}
               <View style={styles.sectionHeader}>
                 <AppText style={styles.sectionTitle}>Bilan transactions</AppText>
-                <TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.navigate('Finance' as never)}>
                   <AppText style={styles.seeAll}>Voir tout</AppText>
                 </TouchableOpacity>
               </View>
@@ -394,13 +402,13 @@ const HomeScreen = () => {
               {/* Section Gestations */}
               <View style={styles.sectionHeader}>
                 <AppText style={styles.sectionTitle}>Gestations en cours</AppText>
-                <TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.navigate('Reproduction' as never)}>
                   <AppText style={styles.seeAll}>Voir tout</AppText>
                 </TouchableOpacity>
               </View>
 
               {gestations.length > 0 ? (
-                gestations.map((gestation, index) => (
+                gestations.slice(0, 2).map((gestation, index) => (
                   <View key={index} style={styles.alertCard}>
                     <View style={[styles.alertIconCircle, { backgroundColor: '#F3E5F5' }]}>
                       <MaterialCommunityIcons name="reproduction" size={20} color="#7B1FA2" />

@@ -25,7 +25,7 @@ import { Theme } from '../../../config/colors';
 import { getReproductionEventColor } from '../../../config/colors';
 import { validerEvenementReproduction, Animal, Evenement } from '../../../utils/reproductionValidation';
 import { getReproductionEvents } from '../../../database/repositories/reproductionRepository';
-import { filterAnimalsForReproduction } from '../../../database/repositories/animalRepository';
+import { getStadeReproduction } from '../../../utils/reproductionState';
 
 const TABS_CONFIG = [
   { id: 'saillie', label: 'Saillie' },
@@ -49,6 +49,7 @@ const AddReproductionEventScreen = () => {
   const [categories, setCategories] = useState<any[]>([]);
   const [availableFemales, setAvailableFemales] = useState<any[]>([]);
   const [availableMales, setAvailableMales] = useState<any[]>([]);
+  const [eligibleFemales, setEligibleFemales] = useState<any[]>([]);
   const [animalEvents, setAnimalEvents] = useState<Evenement[]>([]);
 
   // Saillie states
@@ -57,6 +58,7 @@ const AddReproductionEventScreen = () => {
   const [dateSaillie, setDateSaillie] = useState<Date | undefined>(undefined);
   const [calculatedBirthDate, setCalculatedBirthDate] = useState<Date | null>(null);
   const [filteredMales, setFilteredMales] = useState<any[]>([]);
+  const [saillieType, setSaillieType] = useState<'naturelle' | 'artificielle'>('naturelle');
   
   // Gestation states
   const [selectedFemaleGestation, setSelectedFemaleGestation] = useState<any>(null);
@@ -113,7 +115,16 @@ const AddReproductionEventScreen = () => {
 
       setAvailableFemales(females);
       setAvailableMales(males);
-      
+
+      console.log('[AddReproductionEvent] DEBUG - Femelles chargées:', females.length);
+      console.log('[AddReproductionEvent] DEBUG - Détails femelles:', females.map(f => ({
+        id: f.id,
+        nom: f.nom,
+        sexe: f.sexe,
+        statut: f.statut,
+        espece: f.espece?.nom,
+      })));
+
       // Charger les événements de reproduction pour le filtrage d'éligibilité
       const reproductionEvents = await getReproductionEvents(farm.id);
       setAnimalEvents(reproductionEvents);
@@ -151,38 +162,76 @@ const AddReproductionEventScreen = () => {
     }
   }, [selectedFemaleSaillie, availableMales]);
 
-  // Filter females based on reproduction eligibility rules
+  // Filter females based on reproduction stage using getStadeReproduction
   useEffect(() => {
-    if (availableFemales.length === 0 || animalEvents.length === 0) {
+    if (availableFemales.length === 0) {
       return;
     }
 
-    const tabToTypeReproduction: Record<string, string> = {
-      'saillie': 'SAILLIE',
-      'gestation': 'GESTATION',
-      'misebas': 'MISE_BAS',
-    };
-    
-    const typeReproduction = tabToTypeReproduction[activeTab];
-    const eligibleFemales = filterAnimalsForReproduction(
-      availableFemales,
-      typeReproduction,
-      animalEvents,
-      {} // especeParametres - could be loaded from espece table if needed
-    );
+    const filterFemalesByStage = async () => {
+      const tabToStage: Record<string, string> = {
+        'saillie': 'LIBRE',
+        'gestation': 'SAILLIE',
+        'misebas': 'GESTATION',
+      };
 
-    console.log('[AddReproductionEvent] Filtered eligible females for', typeReproduction, ':', eligibleFemales.length);
-    
-    // Update the appropriate state based on active tab
-    if (activeTab === 'saillie') {
-      // Saillie uses its own picker, so we don't need to update availableFemales
-      // But we could add validation to show only eligible females
-    } else if (activeTab === 'gestation') {
-      // Gestation uses its own picker
-    } else if (activeTab === 'misebas') {
-      // Mise bas uses its own picker
+      const requiredStage = tabToStage[activeTab];
+      const filtered = [];
+
+      console.log('[AddReproductionEvent] Starting filter for', activeTab, '(required stage:', requiredStage, ')');
+      console.log('[AddReproductionEvent] Available females count:', availableFemales.length);
+
+      for (const female of availableFemales) {
+        try {
+          const stage = await getStadeReproduction(female.id);
+          console.log('[AddReproductionEvent] Female', female.nom, 'ID:', female.id, 'stage:', stage);
+          if (stage === requiredStage) {
+            filtered.push(female);
+          }
+        } catch (error) {
+          console.error('[AddReproductionEvent] Error getting stage for female', female.id, error);
+          // If getStadeReproduction fails, exclude the female to prevent incorrect selections
+        }
+      }
+
+      console.log('[AddReproductionEvent] Filtered eligible females for', activeTab, '(stage:', requiredStage, '):', filtered.length);
+      setEligibleFemales(filtered);
+    };
+
+    void filterFemalesByStage();
+  }, [activeTab, availableFemales]);
+
+  // Refresh filtered females when tab changes (to ensure real-time updates after event creation)
+  useEffect(() => {
+    console.log('[AddReproductionEvent] Tab changed to:', activeTab, 'refreshing filtered females');
+    if (availableFemales.length > 0) {
+      const filterFemalesByStage = async () => {
+        const tabToStage: Record<string, string> = {
+          'saillie': 'LIBRE',
+          'gestation': 'SAILLIE',
+          'misebas': 'GESTATION',
+        };
+
+        const requiredStage = tabToStage[activeTab];
+        const filtered = [];
+
+        for (const female of availableFemales) {
+          try {
+            const stage = await getStadeReproduction(female.id);
+            if (stage === requiredStage) {
+              filtered.push(female);
+            }
+          } catch (error) {
+            console.error('[AddReproductionEvent] Error getting stage for female', female.id, error);
+          }
+        }
+
+        setEligibleFemales(filtered);
+      };
+
+      void filterFemalesByStage();
     }
-  }, [activeTab, availableFemales, animalEvents]);
+  }, [activeTab]);
 
   const calculateEstimatedBirthDate = () => {
     if (!dateConfirmation || !selectedFemaleGestation) return;
@@ -263,9 +312,9 @@ const AddReproductionEventScreen = () => {
 
   const handleSubmit = async () => {
     const selectedFemale = getSelectedFemale();
-    
+
     // Validation selon onglet
-    if (activeTab === 'saillie' && (!selectedFemaleSaillie || !selectedMale || !dateSaillie)) {
+    if (activeTab === 'saillie' && (!selectedFemaleSaillie || !dateSaillie)) {
       setError('Veuillez remplir tous les champs obligatoires');
       return;
     }
@@ -276,6 +325,33 @@ const AddReproductionEventScreen = () => {
     if (activeTab === 'misebas' && (!selectedFemaleMiseBas || !dateMiseBas)) {
       setError('Veuillez remplir tous les champs obligatoires');
       return;
+    }
+
+    // Validation: Empêcher de créer une saillie pour un animal déjà en saillie
+    if (activeTab === 'saillie' && selectedFemaleSaillie) {
+      const currentStage = await getStadeReproduction(selectedFemaleSaillie.id);
+      if (currentStage === 'SAILLIE') {
+        setError('Cet animal est déjà en saillie. Impossible de créer une nouvelle saillie.');
+        return;
+      }
+    }
+
+    // Validation: Empêcher de créer une gestation pour un animal déjà en gestation
+    if (activeTab === 'gestation' && selectedFemaleGestation) {
+      const currentStage = await getStadeReproduction(selectedFemaleGestation.id);
+      if (currentStage === 'GESTATION') {
+        setError('Cet animal est déjà en gestation. Impossible de créer une nouvelle gestation.');
+        return;
+      }
+    }
+
+    // Validation: Empêcher de créer une mise bas pour un animal qui n'est pas en gestation
+    if (activeTab === 'misebas' && selectedFemaleMiseBas) {
+      const currentStage = await getStadeReproduction(selectedFemaleMiseBas.id);
+      if (currentStage !== 'GESTATION') {
+        setError('Cet animal n\'est pas en gestation. Impossible de créer une mise bas.');
+        return;
+      }
     }
 
     // Validation backend pour éviter les rejets lors du sync
@@ -338,11 +414,14 @@ const AddReproductionEventScreen = () => {
         ? JSON.stringify({ male_id: selectedMale.id })
         : undefined;
 
+      const eventDateStr = eventDate.toISOString().split('T')[0];
+      console.log('[AddReproductionEvent] Creating event with date:', eventDateStr, 'for animal:', selectedFemale.nom, 'type:', typeName);
+
       const eventId = await createReproductionEvent({
         farm_id: farm.id,
         animal_id: selectedFemale.id,
         type_evenement_id: eventType.id,
-        date_evenement: eventDate.toISOString().split('T')[0],
+        date_evenement: eventDateStr,
         categorie: eventType.categorie,
         description: description || undefined,
         cout: cout ? Number(cout) : undefined,
@@ -350,6 +429,10 @@ const AddReproductionEventScreen = () => {
       });
 
       console.log('[AddReproductionEvent] Event created successfully:', eventId);
+
+      // Force refresh of available females to update reproduction stages in real-time
+      console.log('[AddReproductionEvent] Refreshing available females after event creation');
+      await loadData();
 
       // Note: La transaction associée sera créée par le backend lors du sync
       // pour éviter la duplication de logique métier côté mobile
@@ -367,6 +450,7 @@ const AddReproductionEventScreen = () => {
       setNombreNouveauNes('');
       setCalculatedBirthDate(null);
       setEstimatedBirthDate(null);
+      setSaillieType('naturelle');
 
       // Navigate to Reproduction tab using reset to ensure proper navigation
       (navigation as any).reset({
@@ -410,7 +494,7 @@ const AddReproductionEventScreen = () => {
             {activeTab === 'saillie' && (
               <View style={styles.formSection}>
                 <AppText style={styles.label}>Femelle *</AppText>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => femaleSailliePickerRef.current?.present()}
                   activeOpacity={0.7}
                   style={styles.input}
@@ -419,35 +503,35 @@ const AddReproductionEventScreen = () => {
                     {selectedFemaleSaillie?.nom || 'Sélectionner une femelle'}
                   </AppText>
                 </TouchableOpacity>
-                
-                <AppText style={styles.label}>Mâle *</AppText>
-                <TouchableOpacity 
+
+                <AppText style={styles.label}>Mâle</AppText>
+                <TouchableOpacity
                   onPress={() => malePickerRef.current?.present()}
                   activeOpacity={0.7}
                   style={styles.input}
                 >
                   <AppText style={selectedMale ? styles.inputText : styles.inputPlaceholder}>
-                    {selectedMale?.nom || 'Sélectionner un mâle'}
+                    {selectedMale?.nom || 'Sélectionner un mâle (optionnel)'}
                   </AppText>
                 </TouchableOpacity>
-                
+
                 <AppText style={styles.label}>Date de saillie *</AppText>
-                <AppDateTimePicker 
-                  value={dateSaillie} 
+                <AppDateTimePicker
+                  value={dateSaillie}
                   onChange={(_: any, formatted: string) => {
                     setDateSaillie(new Date(formatted.split('/').reverse().join('-')));
                     calculateBirthDate();
                   }}
-                  placeholder="Sélectionner une date" 
+                  placeholder="Sélectionner une date"
                 />
-                
+
                 {calculatedBirthDate && (
                   <View style={styles.infoCard}>
                     <AppText style={styles.infoTitle}>Date estimée de mise bas</AppText>
                     <AppText style={styles.infoValue}>{formatDate(calculatedBirthDate)}</AppText>
                     <AppText style={styles.infoSub}>
-                      {selectedFemaleSaillie?.espece?.nom?.toLowerCase().includes('bovin') 
-                        ? 'Bovins : ~285 jours' 
+                      {selectedFemaleSaillie?.espece?.nom?.toLowerCase().includes('bovin')
+                        ? 'Bovins : ~285 jours'
                         : 'Ovins/Caprins : ~150 jours'}
                     </AppText>
                   </View>
@@ -492,7 +576,7 @@ const AddReproductionEventScreen = () => {
             {activeTab === 'misebas' && (
               <View style={styles.formSection}>
                 <AppText style={styles.label}>Femelle *</AppText>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => femaleMiseBasPickerRef.current?.present()}
                   activeOpacity={0.7}
                   style={styles.input}
@@ -501,41 +585,47 @@ const AddReproductionEventScreen = () => {
                     {selectedFemaleMiseBas?.nom || 'Sélectionner une femelle'}
                   </AppText>
                 </TouchableOpacity>
-                
+
                 <AppText style={styles.label}>Date de mise bas *</AppText>
-                <AppDateTimePicker 
-                  value={dateMiseBas} 
+                <AppDateTimePicker
+                  value={dateMiseBas}
                   onChange={(_: any, formatted: string) => setDateMiseBas(new Date(formatted.split('/').reverse().join('-')))}
-                  placeholder="Sélectionner une date" 
-                />
-                
-                <AppText style={styles.label}>Nombre de nouveau-nés</AppText>
-                <AppTextInput 
-                  value={nombreNouveauNes} 
-                  onChangeText={setNombreNouveauNes} 
-                  keyboardType="numeric" 
-                  placeholder="0" 
+                  placeholder="Sélectionner une date"
                 />
               </View>
             )}
 
-            {/* Champs communs */}
+            {/* Champs optionnels communs */}
             <View style={styles.formSection}>
+              <AppText style={styles.sectionTitle}>Champs optionnels</AppText>
+
+              {activeTab === 'misebas' && (
+                <>
+                  <AppText style={styles.label}>Nombre de nouveau-nés</AppText>
+                  <AppTextInput
+                    value={nombreNouveauNes}
+                    onChangeText={setNombreNouveauNes}
+                    keyboardType="numeric"
+                    placeholder="0"
+                  />
+                </>
+              )}
+
               <AppText style={styles.label}>Description</AppText>
-              <AppTextInput 
-                value={description} 
-                onChangeText={setDescription} 
-                multiline 
-                placeholder="Détails (optionnel)" 
-                style={styles.multiline} 
+              <AppTextInput
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                placeholder="Détails (optionnel)"
+                style={styles.multiline}
               />
-              
+
               <AppText style={styles.label}>Coût</AppText>
-              <AppTextInput 
-                value={cout} 
-                onChangeText={setCout} 
-                keyboardType="numeric" 
-                placeholder="0 FCFA" 
+              <AppTextInput
+                value={cout}
+                onChangeText={setCout}
+                keyboardType="numeric"
+                placeholder="0 FCFA"
               />
               
               <View style={styles.formActions}>
@@ -554,7 +644,7 @@ const AddReproductionEventScreen = () => {
       {/* AnimalPickers */}
       <AnimalPicker
         ref={femaleSailliePickerRef}
-        animals={availableFemales}
+        animals={eligibleFemales}
         title="Sélectionner une femelle"
         onSelect={(animal) => setSelectedFemaleSaillie(animal)}
         selectedId={selectedFemaleSaillie?.id}
@@ -568,14 +658,14 @@ const AddReproductionEventScreen = () => {
       />
       <AnimalPicker
         ref={femaleGestationPickerRef}
-        animals={availableFemales}
+        animals={eligibleFemales}
         title="Sélectionner une femelle"
         onSelect={(animal) => setSelectedFemaleGestation(animal)}
         selectedId={selectedFemaleGestation?.id}
       />
       <AnimalPicker
         ref={femaleMiseBasPickerRef}
-        animals={availableFemales}
+        animals={eligibleFemales}
         title="Sélectionner une femelle"
         onSelect={(animal) => setSelectedFemaleMiseBas(animal)}
         selectedId={selectedFemaleMiseBas?.id}
@@ -637,6 +727,13 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.textSecondary,
+    marginTop: 0,
+    marginBottom: 12,
+  },
   label: { marginTop: 12, marginBottom: 6, fontWeight: '600', color: Theme.textPrimary },
   multiline: { minHeight: 80, textAlignVertical: 'top' },
   infoCard: {
@@ -665,6 +762,34 @@ const styles = StyleSheet.create({
   submitButton: { width: '100%' },
   errorBanner: { backgroundColor: '#FFEBEE', borderRadius: 8, padding: 10, marginBottom: 10 },
   errorText: { color: '#C62828' },
+  saillieTypeContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  saillieTypeOption: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+  },
+  saillieTypeOptionSelected: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#2D6A4F',
+  },
+  saillieTypeText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#757575',
+  },
+  saillieTypeTextSelected: {
+    color: '#2D6A4F',
+    fontWeight: '600',
+  },
 });
 
 export default AddReproductionEventScreen;

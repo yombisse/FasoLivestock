@@ -30,7 +30,11 @@ export async function createTransaction(data: Omit<Transaction, 'id' | 'sync_sta
 export async function getLocalTransactions(farmId: string, animalId?: string): Promise<Transaction[]> {
   if (animalId) {
     const transactions = await database.get('transactions')
-      .query(Q.where('farm_id', farmId), Q.where('animal_id', animalId))
+      .query(
+        Q.where('farm_id', farmId),
+        Q.where('animal_id', animalId),
+        Q.sortBy('date_transaction', Q.desc)
+      )
       .fetch();
     const result = transactions.map((t: any) => ({
       id: t.id,
@@ -90,15 +94,22 @@ export async function getLocalTransactions(farmId: string, animalId?: string): P
 }
 
 export function observeLocalTransactions(farmId: string, animalId?: string) {
-  if (animalId) {
-    return database.get('transactions')
-      .query(Q.where('farm_id', farmId), Q.where('animal_id', animalId))
-      .observe();
-  } else {
-    return database.get('transactions')
-      .query(Q.where('farm_id', farmId))
-      .observe();
+  if (!animalId) {
+    console.log('[TransactionRepository] No animalId provided, returning empty observable');
+    // Return an observable that emits an empty array
+    return new (require('rxjs').Observable)((observer: any) => {
+      observer.next([]);
+      observer.complete();
+    });
   }
+  
+  return database.get('transactions')
+    .query(
+      Q.where('farm_id', farmId),
+      Q.where('animal_id', animalId),
+      Q.sortBy('date_transaction', Q.desc)
+    )
+    .observe();
 }
 
 export async function getLocalTransactionById(id: string): Promise<Transaction | null> {

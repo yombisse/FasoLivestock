@@ -108,9 +108,17 @@ export async function getActiveHealthAlerts(farmId: string): Promise<(EvenementS
 
 export async function createEvenementSanitaire(data: Omit<EvenementSanitaire, 'id' | 'sync_status' | 'version' | 'created_at' | 'updated_at'>): Promise<EvenementSanitaire> {
   const userId = await authStorage.getUserId();
+  const categorieValue = 'SANITAIRE';
+  console.log('[AUDIT-PROMPT2] Creating health event with categorie value:', {
+    categorie: categorieValue,
+    categorie_type: typeof categorieValue,
+    categorie_length: categorieValue?.length,
+    categorie_trimmed: categorieValue?.trim(),
+    categorie_upper: categorieValue?.toUpperCase(),
+  });
   const result = await createLocalRecord('evenements', {
     ...data,
-    categorie: 'SANITAIRE',
+    categorie: categorieValue,
     last_modified_by: data.last_modified_by || userId,
   });
 

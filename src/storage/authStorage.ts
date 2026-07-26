@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { farmStorage } from './farmStorage';
+import { TokenData } from '../types/auth.types';
 
 // Fonctions utilitaires pour le stockage des tokens et données utilisateur
 export const authStorage = {
@@ -21,9 +22,44 @@ export const authStorage = {
     }
   },
 
+  async setTokenData(tokenData: TokenData): Promise<void> {
+    try {
+      await AsyncStorage.setItem('tokenData', JSON.stringify(tokenData));
+    } catch (error) {
+      console.error('Error saving token data:', error);
+      throw error;
+    }
+  },
+
+  async getTokenData(): Promise<TokenData | null> {
+    try {
+      const tokenDataStr = await AsyncStorage.getItem('tokenData');
+      return tokenDataStr ? JSON.parse(tokenDataStr) : null;
+    } catch (error) {
+      console.error('Error getting token data:', error);
+      return null;
+    }
+  },
+
+  async isTokenValid(): Promise<boolean> {
+    try {
+      const tokenData = await this.getTokenData();
+      if (!tokenData) return false;
+      
+      const now = Date.now();
+      // Ajouter une marge de 5 minutes (300000 ms) avant expiration
+      const expirationMargin = 5 * 60 * 1000;
+      return tokenData.expires_at > (now + expirationMargin);
+    } catch (error) {
+      console.error('Error checking token validity:', error);
+      return false;
+    }
+  },
+
   async removeToken(): Promise<void> {
     try {
       await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('tokenData');
     } catch (error) {
       console.error('Error removing token:', error);
       throw error;
@@ -61,6 +97,7 @@ export const authStorage = {
   async clearAuth(): Promise<void> {
     try {
       await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('tokenData');
       await AsyncStorage.removeItem('user');
       await farmStorage.removeActiveFarm();
     } catch (error) {

@@ -24,6 +24,10 @@ interface EventDetailModalProps {
     animal_numero?: string;
     id?: string;
     metadonnees?: Record<string, any>;
+    created_at?: string;
+    updated_at?: string;
+    last_modified_by?: string;
+    sync_status?: string;
   };
 }
 
@@ -64,7 +68,22 @@ const EventDetailModal = forwardRef<EventDetailModalRef, EventDetailModalProps>(
     };
 
     const renderMetadata = () => {
-      if (!event.metadonnees || Object.keys(event.metadonnees).length === 0) {
+      if (!event.metadonnees) {
+        return null;
+      }
+
+      // Parse metadonnees if it's a JSON string
+      let metadata: Record<string, any>;
+      try {
+        metadata = typeof event.metadonnees === 'string' 
+          ? JSON.parse(event.metadonnees) 
+          : event.metadonnees;
+      } catch (e) {
+        console.error('[EventDetailModal] Failed to parse metadonnees:', e);
+        return null;
+      }
+
+      if (!metadata || Object.keys(metadata).length === 0) {
         return null;
       }
 
@@ -83,7 +102,7 @@ const EventDetailModal = forwardRef<EventDetailModalRef, EventDetailModalProps>(
         resultat: 'Résultat',
       };
 
-      const entries = Object.entries(event.metadonnees).filter(([_, value]) => value !== null && value !== undefined && value !== '');
+      const entries = Object.entries(metadata).filter(([_, value]) => value !== null && value !== undefined && value !== '');
 
       if (entries.length === 0) return null;
 
@@ -200,7 +219,7 @@ const EventDetailModal = forwardRef<EventDetailModalRef, EventDetailModalProps>(
               </AppText>
               <View style={styles.card}>
                 <AppText style={styles.cardValue} fontSize={16}>
-                  {getEventDate() ? formatDate(getEventDate()) : 'N/A'}
+                  {getEventDate() ? formatDate(getEventDate() || '') : 'N/A'}
                 </AppText>
               </View>
             </View>
@@ -282,6 +301,54 @@ const EventDetailModal = forwardRef<EventDetailModalRef, EventDetailModalProps>(
                 </AppText>
               </View>
             </View>
+
+            {event.created_at && (
+              <View style={styles.section}>
+                <AppText style={styles.sectionTitle} fontWeight="600" color="#757575">
+                  Créé le
+                </AppText>
+                <View style={styles.card}>
+                  <AppText style={styles.cardValue} fontSize={14}>
+                    {formatDate(event.created_at || '')}
+                  </AppText>
+                </View>
+              </View>
+            )}
+
+            {event.updated_at && event.updated_at !== event.created_at && (
+              <View style={styles.section}>
+                <AppText style={styles.sectionTitle} fontWeight="600" color="#757575">
+                  Modifié le
+                </AppText>
+                <View style={styles.card}>
+                  <AppText style={styles.cardValue} fontSize={14}>
+                    {formatDate(event.updated_at || '')}
+                  </AppText>
+                </View>
+              </View>
+            )}
+
+
+            {event.sync_status && (
+              <View style={styles.section}>
+                <AppText style={styles.sectionTitle} fontWeight="600" color="#757575">
+                  Statut de synchronisation
+                </AppText>
+                <View style={styles.card}>
+                  <View style={[
+                    styles.badge,
+                    { backgroundColor: event.sync_status === 'synced' ? '#E8F5E9' : event.sync_status === 'pending' ? '#FFF3E0' : '#FFEBEE' }
+                  ]}>
+                    <AppText style={[
+                      styles.badgeText,
+                      { color: event.sync_status === 'synced' ? '#2E7D32' : event.sync_status === 'pending' ? '#F57C00' : '#D32F2F' }
+                    ]} fontWeight="bold">
+                      {event.sync_status === 'synced' ? 'Synchronisé' : event.sync_status === 'pending' ? 'En attente' : 'Échec'}
+                    </AppText>
+                  </View>
+                </View>
+              </View>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>

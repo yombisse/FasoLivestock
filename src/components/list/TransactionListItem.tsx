@@ -51,13 +51,12 @@ const TransactionListItem: React.FC<TransactionListItemProps> = ({ transaction, 
   };
 
   const getTransactionSubtitle = (transaction: Transaction) => {
-    // Show type + date as subtitle
-    const typeLabel = transaction.type_transaction === 'ENTREE' ? 'Vente' : 
+    // Show type only as subtitle
+    const typeLabel = transaction.type_transaction === 'ENTREE' ? 'Vente' :
                      transaction.type_transaction === 'SORTIE' ? 'Achat' :
                      transaction.type_transaction === 'TRANSFERT' ? 'Transfert' :
                      transaction.type_transaction || 'Transaction';
-    const date = formatDate(transaction.date_transaction);
-    return `${typeLabel} - ${date}`;
+    return typeLabel;
   };
 
   const formatAmount = (amount: number) => {
