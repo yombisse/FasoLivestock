@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppButton from '../../components/AppButton';
-import AppHeader from '../../components/AppHeader';
+import { LinearGradient } from 'react-native-linear-gradient';
 import AppTextInput from '../../components/AppTextInput';
 import AppLink from '../../components/AppLink';
 import AppText from '../../components/AppText';
 import AppImage from '../../components/AppImage';
+import { Theme } from '../../config/colors';
 import authService from '../../services/auth.service';
 import { authStorage } from '../../storage/authStorage';
 
@@ -87,17 +88,24 @@ const Register = ({navigation}: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
-        <AppHeader title="Inscription" subtitle="Créez votre compte et découvrez nos services" />
-        <View style={styles.content}>
-          <View style={styles.scrollContent}>
-            <View style={styles.logoContainer}>
-              <AppImage 
-                source={require('../../assets/images/LogoFLS.png')} 
-                width={150} 
-                height={150} 
-              />
-            </View>
+         <LinearGradient
+        colors={[Theme.primary, Theme.primaryLight]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.headerContent}>
+          <View style={styles.logoSquare}>
+            <AppImage 
+              source={require('../../assets/images/LogoFLS.png')} 
+              width={80} 
+              height={80} 
+            />
           </View>
+          <AppText style={styles.appTitle}>FasoLivestock</AppText>
+          <AppText style={styles.appSubtitle}>Gestion intelligente de vos fermes</AppText>
+        </View>
+      </LinearGradient>
           <ScrollView style={styles.scrollView} contentContainerStyle={{paddingVertical: 24}} showsVerticalScrollIndicator={false}>
             <View style={styles.form}>
               <AppTextInput
@@ -144,7 +152,7 @@ const Register = ({navigation}: any) => {
               </View>
             </View>
           </ScrollView>
-        </View>
+       
     </SafeAreaView>
   );
 };
@@ -177,6 +185,33 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 24,
+  },
+  headerGradient: {
+    paddingTop: 60,
+    paddingBottom: 40,
+    paddingHorizontal: 24,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
+  logoSquare: {
+    width: 100,
+    height: 100,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   form: {
     width: '100%',

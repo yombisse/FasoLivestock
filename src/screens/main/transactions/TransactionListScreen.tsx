@@ -332,48 +332,65 @@ const TransactionListScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerPrimary}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerText}>
-            <AppText style={styles.headerTitle}>Transactions</AppText>
-            <AppText style={styles.headerSubtitle}>Achats et ventes d'animaux</AppText>
-          </View>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity style={styles.headerButton} onPress={handleAdd}>
-              <MaterialCommunityIcons name="cart-plus" size={20} color="#FFFFFF" />
-              <AppText style={styles.headerButtonText}>Achat</AppText>
+      <AppHeader
+        showBackground={false}
+        title='Transactions'
+        showMenuButton
+        onMenuPress={() => (navigation as any).openDrawer()}
+        showRightButton
+        rightButtonIcon="cash-plus"
+        onRightButtonPress={handleVente}
+        style={styles.header}
+
+      >
+        <View style={styles.achatbutton}>
+          <AppText style={styles.iconButtonText}>Vente</AppText>
+        </View>
+        <View style={styles.achatButtonContainer}>
+          <View style={styles.iconButton}>
+            <TouchableOpacity style={styles.iconButtonIcon} onPress={handleAdd}>
+              <View style={styles.iconButtonCircle}>
+                <MaterialCommunityIcons name="cart-plus" size={24} color="#FFFFFF" />
+              </View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerButton} onPress={handleVente}>
-              <MaterialCommunityIcons name="cash-plus" size={20} color="#FFFFFF" />
-              <AppText style={styles.headerButtonText}>Vente</AppText>
-            </TouchableOpacity>
+            <AppText style={styles.iconButtonText}>Achat</AppText>
           </View>
         </View>
-      </View>
+        <View style={styles.headerContent}>
+          <AppText style={styles.headerTitle}>Transactions</AppText>
+          <View style={styles.searchContainer}>
+            <MaterialCommunityIcons name="magnify" size={20} color={Theme.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Rechercher..."
+              placeholderTextColor={Theme.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <MaterialCommunityIcons name="close-circle" size={20} color={Theme.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </AppHeader>
 
       <View style={styles.content}>
         {error && <View style={styles.errorBanner}><AppText style={styles.errorText}>{error}</AppText></View>}
 
-        <AppTab
-          options={transactionTabOptions}
-          activeTab={activeTab}
-          onTabChange={(tabId) => setActiveTab(tabId as any)}
-          style={styles.tabsContainer}
-          tabStyle={styles.tab}
-          textStyle={styles.tabText}
-        />
-
-        {renderBilanCard()}
-
-        <View style={styles.searchBar}>
-          <MaterialCommunityIcons name="magnify" size={20} color="#757575" />
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Rechercher..."
-            style={styles.searchInput}
+        <View style={styles.tabsWrapper}>
+          <AppTab
+            options={transactionTabOptions}
+            activeTab={activeTab}
+            onTabChange={(tabId) => setActiveTab(tabId as any)}
+            style={styles.tabsContainer}
+            tabStyle={styles.tab}
+            textStyle={styles.tabText}
           />
         </View>
+
+       <View style={{marginTop:20}}>{renderBilanCard()}</View>
 
         {transactions.length === 0 ? (
           <View style={styles.emptyState}>
@@ -399,50 +416,83 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Theme.backgroundLight,
   },
-  headerPrimary: {
+  header: {
     backgroundColor: Theme.primary,
-    paddingTop: 60,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
+    justifyContent:'center',
+    alignItems:'center',
+    height:200
   },
   headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerText: {
     flex: 1,
+    paddingVertical:20,
+
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 12,
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 16,
+    alignItems: 'flex-start',
   },
-  headerButton: {
-    flexDirection: 'row',
+  achatButtonContainer: {
+    position: 'absolute',
+    right: 30,
+    top: 5,
+  },
+  achatbutton:{
+    position:'absolute',
+    right:-25,
+    top:60
+  },
+  iconButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 4,
   },
-  headerButtonText: {
-    fontSize: 12,
+  iconButtonIcon: {
+    padding: 4,
+  },
+  iconButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconButtonText: {
+    fontSize: 11,
     color: '#FFFFFF',
     fontWeight: '500',
+    marginTop: 2,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.inputBackground,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+   
+    width:300,
+    height:40
+  },
+  searchIcon: {
+    marginRight: 8,
+    color:'#000'
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color:'#000',
+    height:40
+
   },
   content: {
     flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom:50,
   },
   loadingContainer: {
     flex: 1,
@@ -462,6 +512,10 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#F44336',
     fontSize: 14,
+  },
+  tabsWrapper: {
+    zIndex: 10,
+    elevation: 5,
   },
   tabsContainer: {
     paddingHorizontal: 16,
@@ -505,11 +559,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: Theme.textPrimary,
-  },
+ 
   listContent: {
     padding: 16,
   },

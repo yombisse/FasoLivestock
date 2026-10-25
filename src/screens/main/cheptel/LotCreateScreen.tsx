@@ -125,7 +125,7 @@ const LotCreateScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <AppHeader title="Créer un lot" showBackButton />
+      <AppHeader title="Créer un lot" showBackButton height={100} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {submitError && (
           <View style={styles.errorContainer}>

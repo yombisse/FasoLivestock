@@ -3,9 +3,10 @@ import { authStorage } from '../storage/authStorage';
 import { farmStorage } from '../storage/farmStorage';
 import authService from './auth.service';
 
-const API_BASE_URL = 'https://headscarf-spotless-onto.ngrok-free.dev/api';
+const API_BASE_URL ='http://10.43.168.24:8000/api' ;
+//  'https://headscarf-spotless-onto.ngrok-free.dev/api'
 //'http://192.168.11.200:8000/api'
-//'http://10.125.2.24:8000/api' 
+
 //'http://192.168.100.50:8000/api'
 //'http://10.0.2.2:8000/api'
 // //' URL de production

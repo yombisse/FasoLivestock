@@ -267,6 +267,7 @@ const AnimalNaissanceScreen = () => {
         showBackButton
         onBackPress={() => navigation.goBack()}
         style={styles.header}
+        height={100}
       />
 
       <KeyboardAvoidingView
@@ -280,24 +281,26 @@ const AnimalNaissanceScreen = () => {
             </View>
           ) : null}
 
-          <View style={styles.compactForm}>
-            <View style={styles.compactRow}>
-              <View style={styles.compactField}>
-                <AppText style={styles.compactLabel}>Femelle *</AppText>
+          <View style={styles.singleCard}>
+            <AppText style={styles.cardTitle}>Informations générales</AppText>
+            
+            <View style={styles.fieldRow}>
+              <View style={styles.field}>
+                <AppText style={styles.fieldLabel}>Femelle *</AppText>
                 <TouchableOpacity 
                   onPress={() => motherPickerRef.current?.present()}
                   activeOpacity={0.7}
-                  style={styles.compactInput}
+                  style={styles.fieldInput}
                 >
-                  <AppText style={selectedMother ? styles.compactInputText : styles.compactInputPlaceholder}>
+                  <AppText style={selectedMother ? styles.fieldInputText : styles.fieldInputPlaceholder}>
                     {selectedMother?.nom || 'Sélectionner'}
                   </AppText>
                 </TouchableOpacity>
                 {fieldErrors.mother_id ? <AppText style={styles.errorText}>{fieldErrors.mother_id}</AppText> : null}
               </View>
 
-              <View style={styles.compactField}>
-                <AppText style={styles.compactLabel}>Date *</AppText>
+              <View style={styles.field}>
+                <AppText style={styles.fieldLabel}>Date *</AppText>
                 <AppDateTimePicker
                   value={dateNaissance}
                   onChange={setDateNaissance}
@@ -305,23 +308,23 @@ const AnimalNaissanceScreen = () => {
                 />
                 {fieldErrors.dateNaissance ? <AppText style={styles.errorText}>{fieldErrors.dateNaissance}</AppText> : null}
               </View>
+            </View>
 
-              <View style={styles.compactField}>
-                <AppText style={styles.compactLabel}>Petits *</AppText>
+            <View style={styles.fieldRow}>
+              <View style={styles.field}>
+                <AppText style={styles.fieldLabel}>Nombre de petits *</AppText>
                 <AppTextInput
-                  style={styles.compactInput}
+                  style={styles.fieldInput}
                   value={formData.nombrePetits}
                   onChangeText={(text) => updateNewbornCount(Number(text || 1))}
                   keyboardType="numeric"
-                  placeholder="Nb"
+                  placeholder="Nombre"
                 />
                 {fieldErrors.nombrePetits ? <AppText style={styles.errorText}>{fieldErrors.nombrePetits}</AppText> : null}
               </View>
-            </View>
 
-            <View style={styles.compactRow}>
-              <View style={styles.compactField}>
-                <AppText style={styles.compactLabel}>Lot</AppText>
+              <View style={styles.field}>
+                <AppText style={styles.fieldLabel}>Lot</AppText>
                 <AppSelect
                   value={selectedLotId}
                   onValueChange={setSelectedLotId}
@@ -329,80 +332,91 @@ const AnimalNaissanceScreen = () => {
                   placeholder="Lot"
                 />
               </View>
-
-              <View style={styles.compactField}>
-                <AppText style={styles.compactLabel}>Observation</AppText>
-                <AppTextInput
-                  style={[styles.compactInput, styles.compactMultiline]}
-                  value={formData.observation}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, observation: text }))}
-                  placeholder="Notes"
-                  multiline
-                />
-              </View>
             </View>
-          </View>
 
-          <View style={styles.fieldContainer}>
-            <AppText style={styles.label}>Détails des petits</AppText>
+            <View style={styles.field}>
+              <AppText style={styles.fieldLabel}>Observation</AppText>
+              <AppTextInput
+                style={[styles.fieldInput, styles.multilineInput]}
+                value={formData.observation}
+                onChangeText={(text) => setFormData((prev) => ({ ...prev, observation: text }))}
+                placeholder="Notes"
+                multiline
+              />
+            </View>
+
+            <AppText style={styles.cardTitle}>Détails des petits</AppText>
+            
             {newborns.map((newborn, index) => (
-              <View key={newborn.id} style={styles.newbornCard}>
-                <AppText style={styles.newbornTitle}>Petit {index + 1}</AppText>
-                <AppTextInput
-                  style={styles.input}
-                  value={newborn.numero_identification}
-                  onChangeText={(text) => updateNewborn(index, 'numero_identification', text)}
-                  placeholder="Numéro d'identification *"
-                />
-                {fieldErrors[`newborn_${index}_numero_identification`] ? <AppText style={styles.errorText}>{fieldErrors[`newborn_${index}_numero_identification`]}</AppText> : null}
-                <AppTextInput
-                  style={styles.input}
-                  value={newborn.nom}
-                  onChangeText={(text) => updateNewborn(index, 'nom', text)}
-                  placeholder="Nom (facultatif)"
-                />
-                <View style={styles.rowInputs}>
-                  <View style={styles.halfField}>
-                    <AppText style={styles.inlineLabel}>Sexe *</AppText>
+              <View key={newborn.id} style={styles.newbornSection}>
+                <AppText style={styles.newbornLabel}>Petit {index + 1}</AppText>
+                
+                <View style={styles.fieldRow}>
+                  <View style={styles.field}>
+                    <AppText style={styles.fieldLabel}>Numéro d'identification *</AppText>
+                    <AppTextInput
+                      style={styles.fieldInput}
+                      value={newborn.numero_identification}
+                      onChangeText={(text) => updateNewborn(index, 'numero_identification', text)}
+                      placeholder="Numéro"
+                    />
+                    {fieldErrors[`newborn_${index}_numero_identification`] ? <AppText style={styles.errorText}>{fieldErrors[`newborn_${index}_numero_identification`]}</AppText> : null}
+                  </View>
+
+                  <View style={styles.field}>
+                    <AppText style={styles.fieldLabel}>Nom</AppText>
+                    <AppTextInput
+                      style={styles.fieldInput}
+                      value={newborn.nom}
+                      onChangeText={(text) => updateNewborn(index, 'nom', text)}
+                      placeholder="Nom (facultatif)"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldRow}>
+                  <View style={styles.field}>
+                    <AppText style={styles.fieldLabel}>Sexe *</AppText>
                     <View style={styles.sexeContainer}>
                       <TouchableOpacity
                         style={[styles.sexeOption, newborn.sexe === 'male' && styles.sexeOptionSelected]}
                         onPress={() => updateNewborn(index, 'sexe', 'male')}
                       >
-                        <AppText style={newborn.sexe === 'male' ? styles.sexeOptionTextSelected : styles.sexeOptionText}>M</AppText>
+                        <AppText style={newborn.sexe === 'male' ? styles.sexeOptionTextSelected : styles.sexeOptionText}>Mâle</AppText>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.sexeOption, newborn.sexe === 'femelle' && styles.sexeOptionSelected]}
                         onPress={() => updateNewborn(index, 'sexe', 'femelle')}
                       >
-                        <AppText style={newborn.sexe === 'femelle' ? styles.sexeOptionTextSelected : styles.sexeOptionText}>F</AppText>
+                        <AppText style={newborn.sexe === 'femelle' ? styles.sexeOptionTextSelected : styles.sexeOptionText}>Femelle</AppText>
                       </TouchableOpacity>
                     </View>
                     {fieldErrors[`newborn_${index}_sexe`] ? <AppText style={styles.errorText}>{fieldErrors[`newborn_${index}_sexe`]}</AppText> : null}
                   </View>
-                  <View style={styles.halfField}>
-                    <AppText style={styles.inlineLabel}>Poids (kg) *</AppText>
+
+                  <View style={styles.field}>
+                    <AppText style={styles.fieldLabel}>Poids (kg) *</AppText>
                     <AppTextInput
-                      style={styles.input}
+                      style={styles.fieldInput}
                       value={newborn.poids}
                       onChangeText={(text) => updateNewborn(index, 'poids', text)}
                       keyboardType="numeric"
-                      placeholder="Ex. 32"
+                      placeholder="Poids"
                     />
                     {fieldErrors[`newborn_${index}_poids`] ? <AppText style={styles.errorText}>{fieldErrors[`newborn_${index}_poids`]}</AppText> : null}
                   </View>
                 </View>
               </View>
             ))}
-          </View>
 
-          <TouchableOpacity
-            style={styles.checkboxRow}
-            onPress={() => setFormData((prev) => ({ ...prev, creerPetits: !prev.creerPetits }))}
-          >
-            <MaterialCommunityIcons name={formData.creerPetits ? 'checkbox-marked' : 'checkbox-blank-outline'} size={20} color="#30A15E" />
-            <AppText style={styles.checkboxText}>Créer automatiquement les petits enregistrés</AppText>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.checkboxRow}
+              onPress={() => setFormData((prev) => ({ ...prev, creerPetits: !prev.creerPetits }))}
+            >
+              <MaterialCommunityIcons name={formData.creerPetits ? 'checkbox-marked' : 'checkbox-blank-outline'} size={20} color="#30A15E" />
+              <AppText style={styles.checkboxText}>Créer automatiquement les petits enregistrés</AppText>
+            </TouchableOpacity>
+          </View>
 
           <AppButton
             title="Enregistrer la naissance"
@@ -443,10 +457,10 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 32,
   },
-  contextCard: {
+  singleCard: {
     backgroundColor: Theme.white,
     borderRadius: 16,
-    padding: 16,
+    padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -454,85 +468,67 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  contextTitle: {
-    fontSize: 16,
+  cardTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 16,
     color: Theme.textPrimary,
   },
-  fieldContainer: {
+  fieldRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 16,
   },
-  input: {
+  field: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: Theme.textPrimary,
+  },
+  fieldInput: {
     backgroundColor: Theme.inputBackground,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    fontSize: 16,
   },
-  inputText: {
+  fieldInputText: {
     fontSize: 16,
     color: Theme.textPrimary,
   },
-  inputPlaceholder: {
+  fieldInputPlaceholder: {
     fontSize: 16,
     color: Theme.textSecondary,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-    color: Theme.textPrimary,
-  },
-  helperText: {
-    color: Theme.textSecondary,
-    fontSize: 12,
-    marginTop: 6,
   },
   multilineInput: {
-    minHeight: 88,
+    minHeight: 80,
     textAlignVertical: 'top',
   },
-  newbornCard: {
-    backgroundColor: Theme.white,
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+  newbornSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
-  newbornTitle: {
+  newbornLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     marginBottom: 12,
     color: Theme.textPrimary,
-  },
-  rowInputs: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
-  },
-  halfField: {
-    flex: 1,
-  },
-  inlineLabel: {
-    fontSize: 14,
-    marginBottom: 6,
-    color: Theme.textSecondary,
   },
   sexeContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   sexeOption: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     alignItems: 'center',
@@ -556,12 +552,13 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    marginTop: 4,
+    marginTop: 16,
+    marginBottom: 8,
   },
   checkboxText: {
     marginLeft: 8,
     color: Theme.textPrimary,
+    fontSize: 14,
   },
   errorText: {
     color: '#D32F2F',
@@ -582,47 +579,6 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: 8,
-  },
-  compactForm: {
-    backgroundColor: Theme.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  compactRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  compactField: {
-    flex: 1,
-  },
-  compactLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 4,
-    color: Theme.textPrimary,
-  },
-  compactInput: {
-    backgroundColor: Theme.inputBackground,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    minHeight: 40,
-  },
-  compactInputText: {
-    fontSize: 14,
-    color: Theme.textPrimary,
-  },
-  compactInputPlaceholder: {
-    fontSize: 14,
-    color: Theme.textSecondary,
-  },
-  compactMultiline: {
-    minHeight: 60,
-    textAlignVertical: 'top',
   },
 });
 

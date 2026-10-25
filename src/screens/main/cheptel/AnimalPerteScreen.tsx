@@ -132,6 +132,7 @@ const AnimalPerteScreen = () => {
         title="Déclarer une perte"
         showBackButton
         onBackPress={() => navigation.goBack()}
+        height={100}
       />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>

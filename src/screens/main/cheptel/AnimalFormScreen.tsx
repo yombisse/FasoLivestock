@@ -310,6 +310,7 @@ const AnimalFormScreen = () => {
         title={isEditMode ? 'Modifier l\'animal' : 'Ajouter un animal'}
         showBackground={false}
         showBackButton
+        height={100}
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         titleStyle={styles.headerTitle}

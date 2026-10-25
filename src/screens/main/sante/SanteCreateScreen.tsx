@@ -348,6 +348,7 @@ const SanteCreateScreen = () => {
         showBackground={false}
         title="Nouvel événement santé"
         showBackButton
+        height={100}
         onBackPress={() => navigation.goBack()}
         style={styles.header}
       />

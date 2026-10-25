@@ -8,6 +8,8 @@ import AppLink from '../../components/AppLink';
 import AppText from '../../components/AppText';
 import AppImage from '../../components/AppImage';
 import authService from '../../services/auth.service';
+import { LinearGradient } from 'react-native-linear-gradient';
+import { Theme } from '../../config/colors';
 
 const ForgotPassword = ({navigation}: any) => {
   const [email, setEmail] = useState('');
@@ -48,16 +50,26 @@ const ForgotPassword = ({navigation}: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
-        <AppHeader title="Mot de passe oublié" />
+      <LinearGradient
+              colors={[Theme.primary, Theme.primaryLight]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.headerGradient}
+            >
+              <View style={styles.headerContent}>
+                <View style={styles.logoSquare}>
+                  <AppImage 
+                    source={require('../../assets/images/LogoFLS.png')} 
+                    width={80} 
+                    height={80} 
+                  />
+                </View>
+                <AppText style={styles.appTitle}>FasoLivestock</AppText>
+                <AppText style={styles.appSubtitle}>Gestion intelligente de vos fermes</AppText>
+              </View>
+          </LinearGradient>
         <View style={styles.content}>
           <View style={styles.scrollContent}>
-            <View style={styles.logoContainer}>
-              <AppImage 
-                source={require('../../assets/images/LogoFLS.png')} 
-                width={150} 
-                height={150} 
-              />
-            </View>
             <AppText style={styles.title}>Réinitialiser le mot de passe</AppText>
             <AppText style={styles.description}>
               Entrez votre adresse email et nous vous enverrons un lien pour réinitialiser votre mot de passe.
@@ -115,6 +127,33 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 20,
+  },
+  headerGradient: {
+    paddingTop: 60,
+    paddingBottom: 40,
+    paddingHorizontal: 24,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
+  logoSquare: {
+    width: 100,
+    height: 100,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   title: {
     fontSize: 28,

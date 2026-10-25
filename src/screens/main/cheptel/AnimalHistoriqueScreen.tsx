@@ -174,6 +174,7 @@ const AnimalHistoriqueScreen = () => {
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         showBackground={false}
+        titleStyle={styles.headertitle}
       />
 
       <View style={styles.content}>
@@ -229,6 +230,12 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#30A15E',
+    height:80,
+    justifyContent:'center'
+  },
+  headertitle:{
+    fontSize:20,
+    alignSelf:'center'
   },
   content: {
     flex: 1,

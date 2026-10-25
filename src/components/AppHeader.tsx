@@ -152,7 +152,7 @@ export default AppHeader;
 const styles=StyleSheet.create({
   container:{
     width:'100%',
-    height:180,
+    height:80,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: {

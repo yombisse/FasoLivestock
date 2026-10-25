@@ -233,6 +233,7 @@ const AnimalVenteScreen = () => {
         showBackground={false}
         title="Vendre l'animal"
         showBackButton
+        height={100}
         onBackPress={() => navigation.goBack()}
         style={styles.header}
         titleStyle={styles.headerTitle}
